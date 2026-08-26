@@ -1,0 +1,74 @@
+[
+  {
+    "id": "argo-1902594",
+    "lat": 12.4471,
+    "lon": 84.7402,
+    "depth": 3.5,
+    "temperature": 28.336,
+    "time": "2024-03-09T13:29:13Z",
+    "source": "real"
+  },
+  {
+    "id": "argo-1902669",
+    "lat": 13.4833,
+    "lon": 86.7,
+    "depth": 0.2,
+    "temperature": 28.383,
+    "time": "2024-03-07T14:05:25Z",
+    "source": "real"
+  },
+  {
+    "id": "argo-1902670",
+    "lat": 6.45,
+    "lon": 87.2833,
+    "depth": 0.4,
+    "temperature": 29.595,
+    "time": "2024-03-04T14:08:12Z",
+    "source": "real"
+  },
+  {
+    "id": "argo-2902394",
+    "lat": 9.9644,
+    "lon": 87.715,
+    "depth": 1.1,
+    "temperature": 28.828,
+    "time": "2024-03-04T22:00:59Z",
+    "source": "real"
+  },
+  {
+    "id": "argo-2902765",
+    "lat": 12.358,
+    "lon": 85.764,
+    "depth": 0.1,
+    "temperature": 27.947,
+    "time": "2024-03-08T23:29:30Z",
+    "source": "real"
+  },
+  {
+    "id": "argo-2902766",
+    "lat": 14.309,
+    "lon": 88.744,
+    "depth": 0.1,
+    "temperature": 28.233,
+    "time": "2024-03-06T09:34:44Z",
+    "source": "real"
+  },
+  {
+    "id": "argo-2902768",
+    "lat": 12.88,
+    "lon": 81.901,
+    "depth": 0.1,
+    "temperature": 28.488,
+    "time": "2024-03-04T13:45:40Z",
+    "source": "real"
+  },
+  {
+    "id": "argo-2902770",
+    "lat": 12.644,
+    "lon": 89.538,
+    "depth": 0.2,
+    "temperature": 28.277,
+    "time": "2024-03-04T13:38:37Z",
+    "source": "real"
+  }
+]

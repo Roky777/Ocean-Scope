@@ -1,0 +1,7 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+xarray>=2024.6
+netCDF4>=1.7
+numpy>=1.26
+certifi
+truststore

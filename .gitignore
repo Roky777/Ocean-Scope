@@ -1,0 +1,17 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+
+# Data artifacts (regenerate with the scripts in backend/data/)
+backend/data/*.nc
+backend/data/_incois_raw.nc
+backend/data/argo_profiles.json
+frontend/public/land.json
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
