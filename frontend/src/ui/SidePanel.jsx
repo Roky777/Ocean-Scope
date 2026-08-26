@@ -12,6 +12,8 @@ const TABS = [
     hint: "Step or animate through the monthly timesteps" },
   { id: "colorbar", label: "Colorbar", glyph: "▤",
     hint: "Inspect and rescale the value-to-colour mapping" },
+  { id: "layers", label: "Layers", glyph: "≋",
+    hint: "Volume, currents, isosurface and layer blending" },
 ];
 
 /**
@@ -47,6 +49,24 @@ export default function SidePanel({
   manualRange,
   onManualRange,
   units,
+  renderMode,
+  onRenderMode,
+  volumeAvailable,
+  showCurrents,
+  onShowCurrents,
+  showIsosurface,
+  onShowIsosurface,
+  isoValue,
+  onIsoValue,
+  isoRange,
+  verticalExaggeration,
+  onVerticalExaggeration,
+  layerOpacity,
+  onLayerOpacity,
+  forecastEnabled,
+  onForecastEnabled,
+  forecastLead,
+  onForecastLead,
 }) {
   // `view` lags `open` by one animation so closing can animate out.
   const [view, closing] = useClosable(open);
@@ -75,7 +95,7 @@ export default function SidePanel({
       <nav className="tab-strip" aria-label="Controls">
         {/* Explore mode is for outreach: the colour-scale controls are an
             expert affordance and only add noise there. */}
-        {TABS.filter((t) => mode !== "explore" || t.id !== "colorbar").map((t) => (
+        {TABS.filter((t) => mode !== "explore" || !["colorbar", "layers"].includes(t.id)).map((t) => (
           <button
             key={t.id}
             className={open === t.id ? "tab active" : "tab"}
@@ -193,6 +213,23 @@ export default function SidePanel({
                   </button>
                 ))}
               </div>
+              <div className="control-divider" />
+              <label className="toggle-row">
+                <span><strong>Forecast</strong><small>Extend 1–3 months beyond observations</small></span>
+                <input type="checkbox" checked={forecastEnabled} onChange={(e) => onForecastEnabled(e.target.checked)} />
+              </label>
+              {forecastEnabled && (
+                <>
+                  <div className="segmented">
+                    {[1, 2, 3].map((lead) => (
+                      <button key={lead} className={forecastLead === lead ? "seg active" : "seg"} onClick={() => onForecastLead(lead)}>
+                        +{lead} month{lead > 1 ? "s" : ""}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="forecast-note">Predicted · baseline statistical projection, not an operational INCOIS forecast.</p>
+                </>
+              )}
             </div>
           )}
 
@@ -315,6 +352,56 @@ export default function SidePanel({
                 scales keep colours comparable as you move through depth or time,
                 at the cost of contrast.
               </p>
+            </div>
+          )}
+
+          {view === "layers" && (
+            <div className="panel-body">
+              <p className="hint">Scientific rendering layers share the same real grid.</p>
+              <p className="field-label">Render mode</p>
+              <div className="segmented render-mode-control">
+                <button className={renderMode === "surface" ? "seg active" : "seg"} onClick={() => onRenderMode("surface")}>Terrain</button>
+                <button className={renderMode === "volume" ? "seg active" : "seg"} disabled={!volumeAvailable} onClick={() => onRenderMode("volume")}>Ray-marched volume</button>
+              </div>
+
+              <label className="range-control">
+                <span>Vertical exaggeration <strong>{verticalExaggeration}×</strong></span>
+                <input type="range" min="1" max="12" step="1" value={verticalExaggeration} onChange={(e) => onVerticalExaggeration(Number(e.target.value))} />
+              </label>
+
+              <label className="toggle-row">
+                <span><strong>Current vectors</strong><small>Animated real INCOIS U/V glyphs</small></span>
+                <input type="checkbox" checked={showCurrents} onChange={(e) => onShowCurrents(e.target.checked)} />
+              </label>
+              <label className="toggle-row">
+                <span><strong>Isosurface</strong><small>True marching-tetrahedra extraction</small></span>
+                <input type="checkbox" checked={showIsosurface} disabled={!volumeAvailable} onChange={(e) => onShowIsosurface(e.target.checked)} />
+              </label>
+              {showIsosurface && volumeAvailable && (
+                <div className="range-control">
+                  <span>Target value <strong>{Number(isoValue).toFixed(1)} {units}</strong></span>
+                  <input aria-label="Isosurface target value" type="range" min={isoRange?.min ?? 0} max={isoRange?.max ?? 1} step={(isoRange?.max - isoRange?.min) / 80 || 0.1} value={isoValue} onChange={(e) => onIsoValue(Number(e.target.value))} />
+                  {variable === "temperature" && (
+                    <div className="iso-presets" aria-label="Temperature isosurface presets">
+                      {[20, 26, 28]
+                        .filter((v) => v >= (isoRange?.min ?? 0) && v <= (isoRange?.max ?? 100))
+                        .map((v) => (
+                          <button key={v} className={Math.abs(isoValue - v) < 0.05 ? "preset active" : "preset"} onClick={() => onIsoValue(v)}>
+                            {v} °C
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p className="field-label">Layer opacity</p>
+              {["surface", ...(renderMode === "volume" ? ["volume"] : []), ...(showCurrents ? ["currents"] : []), ...(showIsosurface ? ["isosurface"] : [])].map((name) => (
+                <label className="range-control compact" key={name}>
+                  <span>{name[0].toUpperCase() + name.slice(1)} <strong>{Math.round((layerOpacity[name] ?? 1) * 100)}%</strong></span>
+                  <input type="range" min="0" max="1" step="0.05" value={layerOpacity[name] ?? 1} onChange={(e) => onLayerOpacity(name, Number(e.target.value))} />
+                </label>
+              ))}
             </div>
           )}
         </section>

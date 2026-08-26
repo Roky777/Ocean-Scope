@@ -27,6 +27,8 @@ export default function HazardView({
   onTimestep,
   selectedId,
   onSelect,
+  metric,
+  onMetric,
 }) {
   const [expanded, setExpanded] = useState(null);
 
@@ -34,7 +36,8 @@ export default function HazardView({
     setExpanded(null);
   }, [timestep]);
 
-  const advisories = hazard?.advisories ?? [];
+  const active = metric === "anomaly" ? hazard?.anomaly_field : hazard;
+  const advisories = active?.advisories ?? [];
   const sorted = [...advisories].sort(
     (a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity],
   );
@@ -54,9 +57,14 @@ export default function HazardView({
           </span>
         </div>
         <p className="panel-sub">
-          Cyclone Heat Potential · {hazard?.month_label ?? "—"}
+          {metric === "anomaly" ? "Surface temperature anomaly" : "Cyclone Heat Potential"} · {hazard?.month_label ?? "—"}
         </p>
       </header>
+
+      <div className="segmented hazard-metric">
+        <button className={metric === "tchp" ? "seg active" : "seg"} onClick={() => onMetric("tchp")}>Cyclone heat</button>
+        <button className={metric === "anomaly" ? "seg active" : "seg"} onClick={() => onMetric("anomaly")}>Warm anomaly</button>
+      </div>
 
       {/* Period selector: an advisory is meaningless without a date. */}
       <div className="hazard-period">
@@ -95,7 +103,7 @@ export default function HazardView({
               >
                 <Severity level={a.severity} />
                 <span className="bulletin-region">{a.region}</span>
-                <span className="bulletin-metric">{a.peak_tchp} kJ/cm²</span>
+                <span className="bulletin-metric">{metric === "anomaly" ? `${a.peak_anomaly} °C` : `${a.peak_tchp} kJ/cm²`}</span>
               </button>
 
               {isOpen && (
@@ -104,13 +112,10 @@ export default function HazardView({
                   <p className="bulletin-detail">{a.detail}</p>
                   <dl className="bulletin-stats">
                     <div>
-                      <dt>Peak TCHP</dt>
-                      <dd>{a.peak_tchp}</dd>
+                      <dt>{metric === "anomaly" ? "Peak anomaly" : "Peak TCHP"}</dt>
+                      <dd>{metric === "anomaly" ? `${a.peak_anomaly} °C` : a.peak_tchp}</dd>
                     </div>
-                    <div>
-                      <dt>26 °C depth</dt>
-                      <dd>{a.d26} m</dd>
-                    </div>
+                    {metric !== "anomaly" && <div><dt>26 °C depth</dt><dd>{a.d26} m</dd></div>}
                     <div>
                       <dt>Extent</dt>
                       <dd>{a.area_cells} cells</dd>
@@ -129,14 +134,14 @@ export default function HazardView({
 
         {!sorted.length && !loading && (
           <li className="bulletin-empty">
-            No region exceeds the {hazard?.thresholds?.moderate ?? 50} kJ/cm²
+            No region exceeds the {active?.thresholds?.moderate ?? (metric === "anomaly" ? 1 : 50)} {metric === "anomaly" ? "°C" : "kJ/cm²"}
             advisory threshold for this period.
           </li>
         )}
       </ol>
 
       <footer className="hazard-method">
-        <p className="panel-sub muted">{hazard?.method}</p>
+        <p className="panel-sub muted">{active?.method}</p>
         <p className="panel-sub muted">
           <strong>Proxy, not an operational product.</strong> Derived from a
           5-level temperature profile; INCOIS issues the official bulletins.

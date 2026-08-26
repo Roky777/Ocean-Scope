@@ -19,6 +19,10 @@ import {
   fetchFloats,
   fetchLand,
   fetchHazard,
+  fetchVolume,
+  fetchCurrents,
+  fetchIsosurface,
+  fetchForecast,
   prefetchTimesteps,
   prefetchDepths,
 } from "./api";
@@ -42,6 +46,7 @@ export default function App() {
   const [hazard, setHazard] = useState(null);
   const [hazardLoading, setHazardLoading] = useState(false);
   const [selectedAdvisory, setSelectedAdvisory] = useState(null);
+  const [hazardMetric, setHazardMetric] = useState("tchp");
   const [splash, setSplash] = useState(true);
 
   const [openTab, setOpenTab] = useState(null); // collapsed on load, per spec
@@ -62,6 +67,19 @@ export default function App() {
   const [paletteOverride, setPaletteOverride] = useState(null);
   const [manualRange, setManualRange] = useState(null);
   const [playing, setPlaying] = useState(false);
+  const [renderMode, setRenderMode] = useState("surface");
+  const [volume, setVolume] = useState(null);
+  const [currents, setCurrents] = useState(null);
+  const [isosurface, setIsosurface] = useState(null);
+  const [showCurrents, setShowCurrents] = useState(false);
+  const [showIsosurface, setShowIsosurface] = useState(false);
+  const [isoValue, setIsoValue] = useState(28);
+  const [verticalExaggeration, setVerticalExaggeration] = useState(1);
+  const [layerOpacity, setLayerOpacity] = useState({ surface: 1, volume: 0.76, currents: 0.88, isosurface: 0.62 });
+  const [forecastEnabled, setForecastEnabled] = useState(false);
+  const [forecastLead, setForecastLead] = useState(1);
+  const [forecast, setForecast] = useState(null);
+  const [searchTarget, setSearchTarget] = useState(null);
 
   const [booting, setBooting] = useState(true);
   const [fetching, setFetching] = useState(false); // shown only if slow (>300ms)
@@ -154,6 +172,53 @@ export default function App() {
     prefetchDepths(variable, meta.depths, timestep);
   }, [meta, variable, timestep]);
 
+  const volumeAvailable = Boolean(meta?.variables.find((v) => v.id === variable && !v.surface)?.available);
+
+  useEffect(() => {
+    if (!meta || (!showIsosurface && renderMode !== "volume") || !volumeAvailable || forecastEnabled) return;
+    let alive = true;
+    fetchVolume(variable, timestep)
+      .then((data) => alive && setVolume(data))
+      .catch((e) => alive && pushToast(`Volume unavailable: ${e.message}`));
+    return () => { alive = false; };
+  }, [meta, variable, timestep, renderMode, showIsosurface, volumeAvailable, forecastEnabled, pushToast]);
+
+  useEffect(() => {
+    if (!showCurrents || !meta || forecastEnabled) return;
+    let alive = true;
+    fetchCurrents(timestep)
+      .then((data) => alive && setCurrents(data))
+      .catch((e) => alive && pushToast(`Current vectors unavailable: ${e.message}`));
+    return () => { alive = false; };
+  }, [showCurrents, meta, timestep, forecastEnabled, pushToast]);
+
+  useEffect(() => {
+    if (!showIsosurface || !volumeAvailable || forecastEnabled) {
+      setIsosurface(null);
+      return;
+    }
+    let alive = true;
+    const id = setTimeout(() => {
+      fetchIsosurface(variable, timestep, isoValue)
+        .then((data) => {
+          if (!alive) return;
+          setIsosurface(data);
+          if (!data.triangle_count) pushToast(`No ${isoValue.toFixed(1)} isosurface in this volume`);
+        })
+        .catch((e) => alive && pushToast(`Isosurface unavailable: ${e.message}`));
+    }, 180);
+    return () => { alive = false; clearTimeout(id); };
+  }, [showIsosurface, volumeAvailable, forecastEnabled, variable, timestep, isoValue, pushToast]);
+
+  useEffect(() => {
+    if (!forecastEnabled) return;
+    let alive = true;
+    fetchForecast(forecastLead)
+      .then((data) => alive && setForecast(data))
+      .catch((e) => alive && pushToast(`Forecast unavailable: ${e.message}`));
+    return () => { alive = false; };
+  }, [forecastEnabled, forecastLead, pushToast]);
+
   // --- time playback -----------------------------------------------------
   useEffect(() => {
     if (!playing || !meta) return;
@@ -192,10 +257,12 @@ export default function App() {
       ? { min: Number(manualRange.min), max: Number(manualRange.max) }
       : null;
 
-  const showingHazard = view === "hazard" && hazard;
-  const sceneField = showingHazard ? hazard : field;
-  const sceneRange = showingHazard ? hazard.range : manualApplied ?? range;
-  const sceneColormap = showingHazard ? "risk" : palette;
+  const hazardField = hazardMetric === "anomaly" ? hazard?.anomaly_field : hazard;
+  const showingHazard = view === "hazard" && hazardField;
+  const showingForecast = view === "explorer" && forecastEnabled && forecast;
+  const sceneField = showingHazard ? hazardField : showingForecast ? forecast : field;
+  const sceneRange = showingHazard ? hazardField.range : showingForecast ? forecast.range : manualApplied ?? range;
+  const sceneColormap = showingHazard ? hazardField.colormap : palette;
   const sceneScaleType = showingHazard ? "linear" : scaleType;
 
   const handleVariable = (id) => {
@@ -204,6 +271,16 @@ export default function App() {
     setScaleTypeOverride(null);
     setPaletteOverride(null);
     setManualRange(null);
+    setForecastEnabled(false);
+    setVolume(null);
+    setIsosurface(null);
+    const spec = meta?.variables.find((v) => v.id === id);
+    const vr = meta?.ranges?.[id]?.global;
+    if (vr?.min != null) setIsoValue((vr.min + vr.max) / 2);
+    if (spec?.surface) {
+      setRenderMode("surface");
+      setShowIsosurface(false);
+    }
   };
 
   // Hazard grid follows the active timestep, and is only fetched when the
@@ -273,6 +350,14 @@ export default function App() {
           onHoverPoint={setHoverPoint}
           onPickPoint={handlePickPoint}
           onTerrainReady={() => setBooting(false)}
+          renderMode={renderMode}
+          volume={view === "explorer" && !forecastEnabled ? volume : null}
+          currents={view === "explorer" && showCurrents && !forecastEnabled ? currents : null}
+          isosurface={view === "explorer" && showIsosurface && !forecastEnabled ? isosurface : null}
+          verticalExaggeration={verticalExaggeration}
+          layerOpacity={layerOpacity}
+          searchTarget={searchTarget}
+          onClearSearch={() => setSearchTarget(null)}
         />
       )}
 
@@ -292,6 +377,16 @@ export default function App() {
         mode={mode}
         onMode={setMode}
         alertCount={hazard?.advisories?.length ?? 0}
+        bounds={meta?.bounds}
+        searchTarget={searchTarget}
+        onClearCoordinate={() => setSearchTarget(null)}
+        onCoordinateSearch={({ lat, lon }) => {
+          setView("explorer");
+          setOpenTab(null);
+          setSelectedFloat(null);
+          setPickedPoint(null);
+          setSearchTarget({ lat, lon, nonce: Date.now() });
+        }}
       />
 
       {meta && view === "explorer" && (
@@ -327,6 +422,34 @@ export default function App() {
           manualRange={manualRange}
           onManualRange={setManualRange}
           units={activeVar?.units ?? ""}
+          renderMode={renderMode}
+          onRenderMode={setRenderMode}
+          volumeAvailable={volumeAvailable && !forecastEnabled}
+          showCurrents={showCurrents}
+          onShowCurrents={setShowCurrents}
+          showIsosurface={showIsosurface}
+          onShowIsosurface={setShowIsosurface}
+          isoValue={isoValue}
+          onIsoValue={setIsoValue}
+          isoRange={ranges?.global}
+          verticalExaggeration={verticalExaggeration}
+          onVerticalExaggeration={setVerticalExaggeration}
+          layerOpacity={layerOpacity}
+          onLayerOpacity={(name, value) => setLayerOpacity((current) => ({ ...current, [name]: value }))}
+          forecastEnabled={forecastEnabled}
+          onForecastEnabled={(enabled) => {
+            setPlaying(false);
+            setForecastEnabled(enabled);
+            if (enabled) {
+              setVariable("temperature");
+              setDepth(meta.depths[0]);
+              setTimestep(meta.default_timestep);
+              setRenderMode("surface");
+              setShowIsosurface(false);
+            }
+          }}
+          forecastLead={forecastLead}
+          onForecastLead={setForecastLead}
         />
       )}
 
@@ -339,8 +462,8 @@ export default function App() {
           scaleType={sceneScaleType}
           context={
             view === "hazard"
-              ? `${sceneField.month_label} · advisory threshold ${hazard?.thresholds?.moderate ?? 50} kJ/cm²`
-              : `${field.month_label}${field.surface ? " · surface" : ` · ${field.depth} m`}${
+              ? `${sceneField.month_label} · advisory threshold ${sceneField?.thresholds?.moderate ?? 50} ${sceneField.units}`
+              : `${sceneField.month_label}${sceneField.predicted ? " · PREDICTED" : sceneField.surface ? " · surface" : ` · ${sceneField.depth} m`}${
                   scaleMode === "slice" ? "" : ` · scale: ${scaleMode === "global" ? "all depths" : "this depth"}`
                 }`
           }
@@ -400,6 +523,8 @@ export default function App() {
           onTimestep={setTimestep}
           selectedId={selectedAdvisory?.id}
           onSelect={setSelectedAdvisory}
+          metric={hazardMetric}
+          onMetric={(metric) => { setHazardMetric(metric); setSelectedAdvisory(null); }}
         />
       )}
 

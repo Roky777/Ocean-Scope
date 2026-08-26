@@ -9,7 +9,7 @@ const GLOW = new THREE.Color("#6fe3ff");
  * Real Argo floats as glowing markers sitting on the terrain surface.
  * Hover shows ID + depth; clicking opens the profile panel.
  */
-export default function FloatMarkers({ floats, field, filled, range, onSelect, selectedId }) {
+export default function FloatMarkers({ floats, field, filled, range, onSelect, selectedId, exaggeration = 1 }) {
   const [hovered, setHovered] = useState(null);
   if (!field || !filled) return null;
 
@@ -21,7 +21,7 @@ export default function FloatMarkers({ floats, field, filled, range, onSelect, s
     if (!inside) return null;
 
     const t = sampleNormalised(filled, f.lat, f.lon, field, range);
-    const y = t * RELIEF + 0.22;
+    const y = t * RELIEF * exaggeration + 0.22;
 
     // Three visually distinct states, not two: selected outranks hovered so the
     // marker whose panel is open stays obvious while you hover others.

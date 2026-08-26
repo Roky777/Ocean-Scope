@@ -38,6 +38,8 @@ CP = 3993.0               # J/(kg K), specific heat capacity of seawater
 # kJ/cm^2. Operational rule-of-thumb bands.
 TCHP_MODERATE = 50.0
 TCHP_HIGH = 90.0
+ANOMALY_MODERATE = 1.0
+ANOMALY_HIGH = 2.0
 
 # Named sub-basins, used to write advisories in plain language.
 # (lat_min, lat_max, lon_min, lon_max)
@@ -182,6 +184,38 @@ def _advisories(d26, tchp, lats, lons, stamp: dict, limit: int = 6):
     return out[:limit]
 
 
+def _anomaly_advisories(anomaly, lats, lons, stamp: dict, limit: int = 6):
+    buckets = {}
+    for j, lat in enumerate(lats):
+        for i, lon in enumerate(lons):
+            value = anomaly[j, i]
+            if not np.isfinite(value) or value < ANOMALY_MODERATE:
+                continue
+            name = region_for(float(lat), float(lon))
+            bucket = buckets.setdefault(name, {"peak": -999.0, "cells": 0, "lat": 0.0, "lon": 0.0})
+            bucket["cells"] += 1
+            if value > bucket["peak"]:
+                bucket.update(peak=float(value), lat=float(lat), lon=float(lon))
+    out = []
+    for name, b in buckets.items():
+        severity = "high" if b["peak"] >= ANOMALY_HIGH else "moderate"
+        out.append({
+            "id": f"anomaly-{name.lower().replace(' ', '-')}-{stamp['label'].replace(' ', '-').lower()}",
+            "region": name, "severity": severity,
+            "peak_anomaly": round(b["peak"], 2), "area_cells": b["cells"],
+            "lat": round(b["lat"], 2), "lon": round(b["lon"], 2), "period": stamp["label"],
+            "headline": f"Unusually warm surface water — {name} — {stamp['label']} — {severity.upper()}",
+            "detail": (
+                f"Surface temperature is up to {b['peak']:.1f} °C above this "
+                "snapshot's 12-month local baseline across "
+                f"{b['cells']} grid cell{'s' if b['cells'] != 1 else ''}. "
+                "Persistent warm anomalies can stress ecosystems and indicate elevated marine-heat risk."
+            ),
+        })
+    out.sort(key=lambda a: (0 if a["severity"] == "high" else 1, -a["peak_anomaly"]))
+    return out[:limit]
+
+
 @router.get("/api/hazard")
 def get_hazard(timestep: int = Query(0, ge=0)):
     """
@@ -192,9 +226,13 @@ def get_hazard(timestep: int = Query(0, ge=0)):
     """
     ds = ocean._require_dataset()
     d26, tchp, lats, lons = compute(timestep)
+    surface = np.asarray(ds["temperature"].isel(depth=0).values, dtype=float)
+    baseline = np.nanmean(surface, axis=0)
+    anomaly = surface[timestep] - baseline
 
     grid, glats, glons = ocean._downsample(tchp, lats, lons)
     d26_grid, _, _ = ocean._downsample(d26, lats, lons)
+    anomaly_grid, _, _ = ocean._downsample(anomaly, lats, lons)
 
     finite = grid[np.isfinite(grid)]
     stamp = ocean._timestep_label(ds["time"].values[timestep])
@@ -229,6 +267,26 @@ def get_hazard(timestep: int = Query(0, ge=0)):
         },
         "thresholds": {"moderate": TCHP_MODERATE, "high": TCHP_HIGH},
         "advisories": _advisories(d26, tchp, lats, lons, stamp),
+        "anomaly_field": {
+            "variable": "temperature_anomaly",
+            "label": "Surface Temperature Anomaly",
+            "units": "°C",
+            "colormap": "anomaly",
+            "timestep": timestep,
+            "month_label": stamp["label"],
+            "shape": [len(glats), len(glons)],
+            "bounds": {
+                "lat_min": float(glats.min()), "lat_max": float(glats.max()),
+                "lon_min": float(glons.min()), "lon_max": float(glons.max()),
+            },
+            "lat": [round(float(v), 4) for v in glats],
+            "lon": [round(float(v), 4) for v in glons],
+            "values": [[None if not np.isfinite(v) else round(float(v), 2) for v in row] for row in anomaly_grid],
+            "range": {"min": -2.5, "max": 2.5},
+            "thresholds": {"moderate": ANOMALY_MODERATE, "high": ANOMALY_HIGH},
+            "advisories": _anomaly_advisories(anomaly, lats, lons, stamp),
+            "method": "Current surface temperature minus the cell's mean over the available 12-month real-data window.",
+        },
         "method": (
             "TCHP = ρ·cp·∫(T−26 °C)dz from the surface to the 26 °C isotherm "
             "(Leipper & Volgenau 1972), computed from the INCOIS gridded Argo "

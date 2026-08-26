@@ -9,7 +9,7 @@ const SKIRT = 0.42;              // visible thickness of the landmass
  * Coastline landmasses as extruded geometry, shaded distinctly from the ocean
  * surface so the two read as different materials in the same scene.
  */
-export default function Land({ land, bounds }) {
+export default function Land({ land, bounds, exaggeration = 1 }) {
   const geometry = useMemo(() => {
     if (!land || !bounds) return null;
 
@@ -48,7 +48,7 @@ export default function Land({ land, bounds }) {
   if (!geometry) return null;
 
   return (
-    <mesh geometry={geometry} rotation-x={-Math.PI / 2} position-y={LAND_TOP} castShadow>
+    <mesh geometry={geometry} rotation-x={-Math.PI / 2} position-y={LAND_TOP * exaggeration} castShadow>
       <meshStandardMaterial color="#6b7280" roughness={0.95} metalness={0.0} flatShading />
     </mesh>
   );

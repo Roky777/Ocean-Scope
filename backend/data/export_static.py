@@ -68,12 +68,20 @@ def main() -> None:
 
     for t in range(len(meta["timesteps"])):
         total += write(OUT / "hazard" / f"{t}.json", hazard_mod.get_hazard(timestep=t))
+        total += write(OUT / "currents" / f"{t}.json", ocean.get_currents(timestep=t, stride=3))
+
+    for lead in (1, 2, 3):
+        total += write(OUT / "forecast" / f"{lead}.json", ocean.get_forecast(lead=lead))
 
     variables = [v["id"] for v in meta["variables"] if v.get("available")]
+    volume_variables = [v["id"] for v in meta["variables"] if v.get("available") and not v.get("surface")]
     depths = meta["depths"]
     n_time = len(meta["timesteps"])
 
     count = 0
+    for var in volume_variables:
+        for t in range(n_time):
+            total += write(OUT / "volume" / var / f"{t}.json", ocean.get_volume(variable=var, timestep=t))
     for var in variables:
         for d in depths:
             for t in range(n_time):
@@ -84,7 +92,7 @@ def main() -> None:
                 count += 1
 
     print(
-        f"wrote {count} slices + hazard + meta + floats to {OUT.relative_to(ROOT)}\n"
+        f"wrote {count} slices + volumes + currents + forecast + hazard + meta + floats to {OUT.relative_to(ROOT)}\n"
         f"  variables={variables} depths={depths} timesteps={n_time}\n"
         f"  total {total / 1024:.0f} KB"
     )

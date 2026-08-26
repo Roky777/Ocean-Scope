@@ -30,6 +30,22 @@ const url = {
     LIVE
       ? `${LIVE}/api/field?variable=${variable}&depth=${depth}&timestep=${timestep}`
       : `${STATIC_ROOT}/field/${variable}/${depth}/${timestep}.json`,
+  volume: (variable, timestep) =>
+    LIVE
+      ? `${LIVE}/api/volume?variable=${variable}&timestep=${timestep}`
+      : `${STATIC_ROOT}/volume/${variable}/${timestep}.json`,
+  currents: (timestep) =>
+    LIVE
+      ? `${LIVE}/api/currents?timestep=${timestep}&stride=3`
+      : `${STATIC_ROOT}/currents/${timestep}.json`,
+  isosurface: (variable, timestep, value) => {
+    const encoded = encodeURIComponent(Number(value).toFixed(2));
+    return LIVE
+      ? `${LIVE}/api/isosurface?variable=${variable}&timestep=${timestep}&value=${encoded}`
+      : `${STATIC_ROOT}/isosurface/${variable}/${timestep}/${encoded}.json`;
+  },
+  forecast: (lead) =>
+    LIVE ? `${LIVE}/api/forecast?lead=${lead}` : `${STATIC_ROOT}/forecast/${lead}.json`,
 };
 
 async function getJSON(path) {
@@ -50,6 +66,68 @@ async function getJSON(path) {
 
 export const fetchMeta = () => getJSON(url.meta());
 export const fetchFloats = () => getJSON(url.floats());
+
+const layerCache = new Map();
+const cachedLayer = (key, path) => {
+  if (!layerCache.has(key)) {
+    layerCache.set(key, getJSON(path).catch((error) => {
+      layerCache.delete(key);
+      throw error;
+    }));
+  }
+  return layerCache.get(key);
+};
+
+export const fetchVolume = (variable, timestep) =>
+  cachedLayer(`volume|${variable}|${timestep}`, url.volume(variable, timestep));
+export const fetchCurrents = (timestep) =>
+  cachedLayer(`currents|${timestep}`, url.currents(timestep));
+function extractIsosurface(volume, level) {
+  const tets = [[0,5,1,6],[0,1,2,6],[0,2,3,6],[0,3,7,6],[0,7,4,6],[0,4,5,6]];
+  const edges = [[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+  const vertices = [];
+  const [nz, ny, nx] = volume.shape;
+  const lerp = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+  for (let k = 0; k < nz - 1; k++) for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+    const p = [
+      [volume.lon[i],volume.depths[k],volume.lat[j]],[volume.lon[i+1],volume.depths[k],volume.lat[j]],
+      [volume.lon[i+1],volume.depths[k],volume.lat[j+1]],[volume.lon[i],volume.depths[k],volume.lat[j+1]],
+      [volume.lon[i],volume.depths[k+1],volume.lat[j]],[volume.lon[i+1],volume.depths[k+1],volume.lat[j]],
+      [volume.lon[i+1],volume.depths[k+1],volume.lat[j+1]],[volume.lon[i],volume.depths[k+1],volume.lat[j+1]],
+    ];
+    const v = [
+      volume.values[k][j][i],volume.values[k][j][i+1],volume.values[k][j+1][i+1],volume.values[k][j+1][i],
+      volume.values[k+1][j][i],volume.values[k+1][j][i+1],volume.values[k+1][j+1][i+1],volume.values[k+1][j+1][i],
+    ];
+    if (v.some((x) => x == null)) continue;
+    for (const tet of tets) {
+      const hits = [];
+      for (const [ea, eb] of edges) {
+        const a = tet[ea], b = tet[eb];
+        if ((v[a] < level) === (v[b] < level) || v[a] === v[b]) continue;
+        hits.push(lerp(p[a], p[b], (level - v[a]) / (v[b] - v[a])));
+      }
+      if (hits.length === 3) vertices.push(...hits);
+      else if (hits.length === 4) vertices.push(hits[0],hits[1],hits[2],hits[0],hits[2],hits[3]);
+    }
+  }
+  return {
+    variable: volume.variable, value: level, units: volume.units,
+    timestep: volume.timestep, month_label: volume.month_label,
+    bounds: volume.bounds, depth_range: [volume.depths[0], volume.depths.at(-1)],
+    triangle_count: vertices.length / 3, vertices,
+    method: "Marching tetrahedra over the native INCOIS depth/lat/lon grid (client-side static build)",
+  };
+}
+
+export const fetchIsosurface = (variable, timestep, value) => {
+  const k = `iso|${variable}|${timestep}|${Number(value).toFixed(2)}`;
+  if (LIVE) return cachedLayer(k, url.isosurface(variable, timestep, value));
+  if (!layerCache.has(k)) layerCache.set(k, fetchVolume(variable, timestep).then((v) => extractIsosurface(v, value)));
+  return layerCache.get(k);
+};
+export const fetchForecast = (lead) =>
+  cachedLayer(`forecast|${lead}`, url.forecast(lead));
 
 // Slices are immutable, so cache them. Time playback re-visits the same
 // timesteps constantly and this keeps playback from re-fetching every loop.

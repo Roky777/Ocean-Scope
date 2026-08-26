@@ -1,12 +1,15 @@
 import { Suspense, useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars } from "@react-three/drei";
+import { Html, OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import Terrain from "./Terrain";
 import Land from "./Land";
 import FloatMarkers from "./FloatMarkers";
 import HazardHighlight from "./HazardHighlight";
-import { fillGaps, upsample, WIDTH, HEIGHT, RELIEF } from "../grid";
+import VolumeRenderer from "./VolumeRenderer";
+import CurrentVectors from "./CurrentVectors";
+import Isosurface from "./Isosurface";
+import { fillGaps, upsample, WIDTH, HEIGHT, RELIEF, latToZ, lonToX } from "../grid";
 
 /**
  * Eases the camera back to its default framing when `signal` changes.
@@ -65,6 +68,76 @@ function ResetView({ signal }) {
   return null;
 }
 
+function CoordinateFocus({ point, bounds, exaggeration }) {
+  const { camera, controls } = useThree();
+  const tween = useRef(null);
+
+  useEffect(() => {
+    if (!point || !bounds) return;
+    const target = new THREE.Vector3(lonToX(point.lon, bounds), RELIEF * exaggeration * 0.45, latToZ(point.lat, bounds));
+    const offset = new THREE.Vector3(5.5, 8.5, 8.5);
+    tween.current = {
+      elapsed: 0,
+      fromPosition: camera.position.clone(),
+      fromTarget: controls?.target?.clone() ?? HOME_TARGET.clone(),
+      target,
+      position: target.clone().add(offset),
+    };
+  }, [point, bounds, exaggeration, camera, controls]);
+
+  useEffect(() => {
+    if (!controls) return;
+    const cancel = () => { tween.current = null; };
+    controls.addEventListener("start", cancel);
+    return () => controls.removeEventListener("start", cancel);
+  }, [controls]);
+
+  useFrame((_, delta) => {
+    if (!tween.current) return;
+    const tw = tween.current;
+    tw.elapsed = Math.min(1, tw.elapsed + delta / 0.85);
+    const t = 1 - Math.pow(1 - tw.elapsed, 3);
+    camera.position.lerpVectors(tw.fromPosition, tw.position, t);
+    if (controls) {
+      controls.target.lerpVectors(tw.fromTarget, tw.target, t);
+      controls.update();
+    }
+    if (tw.elapsed >= 1) tween.current = null;
+  });
+  return null;
+}
+
+function CoordinatePin({ point, bounds, exaggeration, onClear }) {
+  if (!point || !bounds) return null;
+  const y = RELIEF * exaggeration + 0.18;
+  return (
+    <group position={[lonToX(point.lon, bounds), y, latToZ(point.lat, bounds)]}>
+      <mesh rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.18, 0.27, 36]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.92} side={THREE.DoubleSide} />
+      </mesh>
+      <mesh position-y={0.2}>
+        <sphereGeometry args={[0.07, 14, 14]} />
+        <meshBasicMaterial color="#7aa2ff" toneMapped={false} />
+      </mesh>
+      <Html center position={[0, 0.62, 0]} distanceFactor={14}>
+        <div className="coordinate-label">
+          <strong>{Math.abs(point.lat).toFixed(2)}° {point.lat >= 0 ? "N" : "S"}</strong>
+          <span>{Math.abs(point.lon).toFixed(2)}° {point.lon >= 0 ? "E" : "W"}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear?.();
+            }}
+            aria-label="Remove searched location"
+            title="Remove searched location"
+          >×</button>
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 /** Faint reference grid on the sea floor, for depth context. */
 function FloorGrid() {
   return (
@@ -92,6 +165,14 @@ export default function Scene({
   selectedId,
   onSelectFloat,
   onTerrainReady,
+  renderMode = "surface",
+  volume,
+  currents,
+  isosurface,
+  verticalExaggeration = 1,
+  layerOpacity = {},
+  searchTarget,
+  onClearSearch,
 }) {
   // Bleed null (land) cells so the surface stays continuous under the coastline
   // geometry, then bilinearly upsample for a smooth mesh. Both steps are
@@ -131,7 +212,7 @@ export default function Scene({
       <pointLight position={[0, 9, 18]} intensity={0.12} color="#9fe8ff" distance={70} />
 
       <Suspense fallback={null}>
-        {field && filled && (
+        {field && filled && layerOpacity.surface !== 0 && (
           <Terrain
             key={`${field.shape[0]}x${field.shape[1]}`}
             field={field}
@@ -139,12 +220,37 @@ export default function Scene({
             range={range}
             colormap={colormap}
             scaleType={scaleType}
+            opacity={renderMode === "volume" && volume ? Math.min(layerOpacity.surface ?? 1, 0.16) : layerOpacity.surface ?? 1}
+            exaggeration={verticalExaggeration}
             onReady={onTerrainReady}
             onHover={onHoverPoint}
             onPick={onPickPoint}
           />
         )}
-        {field && land && <Land land={land} bounds={field.bounds} />}
+        {field && renderMode === "volume" && volume && (
+          <VolumeRenderer
+            volume={volume}
+            range={range}
+            colormap={colormap}
+            scaleType={scaleType}
+            opacity={layerOpacity.volume ?? 0.78}
+            exaggeration={verticalExaggeration}
+          />
+        )}
+        {field && currents && (
+          <CurrentVectors data={currents} opacity={layerOpacity.currents ?? 0.88} exaggeration={verticalExaggeration} />
+        )}
+        {isosurface && (
+          <Isosurface
+            data={isosurface}
+            opacity={layerOpacity.isosurface ?? 0.62}
+            exaggeration={verticalExaggeration}
+          />
+        )}
+        {field && land && <Land land={land} bounds={field.bounds} exaggeration={verticalExaggeration} />}
+        {field && searchTarget && (
+          <CoordinatePin point={searchTarget} bounds={field.bounds} exaggeration={verticalExaggeration} onClear={onClearSearch} />
+        )}
         {field && highlight && (
           <HazardHighlight advisory={highlight} bounds={field.bounds} />
         )}
@@ -156,6 +262,7 @@ export default function Scene({
             range={range}
             selectedId={selectedId}
             onSelect={onSelectFloat}
+            exaggeration={verticalExaggeration}
           />
         )}
       </Suspense>
@@ -163,6 +270,7 @@ export default function Scene({
       <FloorGrid />
 
       <ResetView signal={resetSignal} />
+      <CoordinateFocus point={searchTarget} bounds={field?.bounds} exaggeration={verticalExaggeration} />
 
       <OrbitControls
         makeDefault

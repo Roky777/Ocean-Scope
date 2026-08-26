@@ -39,6 +39,8 @@ export default function Terrain({
   range,
   colormap,
   scaleType = "linear",
+  opacity = 1,
+  exaggeration = 1,
   onReady,
   onHover,
   onPick,
@@ -71,7 +73,7 @@ export default function Terrain({
       for (let c = 0; c < cols; c++) {
         const idx = r * cols + c;
         const t = normalise(filled[gridRow][c], range.min, range.max, scaleType);
-        heights[idx] = t * RELIEF;
+        heights[idx] = t * RELIEF * exaggeration;
         const rgb = toLinear(...sample(colormap, t));
         colors[idx * 3] = rgb.r;
         colors[idx * 3 + 1] = rgb.g;
@@ -79,7 +81,7 @@ export default function Terrain({
       }
     }
     return { heights, colors };
-  }, [filled, range, colormap, scaleType, rows, cols]);
+  }, [filled, range, colormap, scaleType, exaggeration, rows, cols]);
 
   // Heights excluding ripple, so the ripple never compounds into the data.
   const settled = useRef(new Float32Array(rows * cols));
@@ -107,6 +109,10 @@ export default function Terrain({
     progress.current = 0;
   }, [target, geometry, rows, cols]);
 
+  useEffect(() => {
+    if (matRef.current && progress.current >= 1) matRef.current.opacity = opacity;
+  }, [opacity]);
+
   useFrame((_, delta) => {
     clock.current += delta * RIPPLE_SPEED;
 
@@ -128,8 +134,8 @@ export default function Terrain({
       }
       col.needsUpdate = true;
 
-      if (matRef.current && matRef.current.opacity < 1) {
-        matRef.current.opacity = Math.min(1, matRef.current.opacity + delta * 2.2);
+      if (matRef.current && matRef.current.opacity < opacity) {
+        matRef.current.opacity = Math.min(opacity, matRef.current.opacity + delta * 2.2);
       }
       if (progress.current >= 1) onReady?.();
     }
@@ -188,6 +194,7 @@ export default function Terrain({
         clearcoat={0.45}
         clearcoatRoughness={0.4}
         side={THREE.DoubleSide}
+        wireframe={Boolean(field.predicted)}
       />
     </mesh>
   );

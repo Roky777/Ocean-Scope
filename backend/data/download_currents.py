@@ -5,7 +5,8 @@ Source: INCOIS ERDDAP, incois_valueadded_products_datasets — GEO_U and GEO_V,
 INCOIS's own geostrophic current components derived from their Argo analysis.
 REAL observational product; no account needed.
 
-Speed is the vector magnitude sqrt(u^2 + v^2), converted from cm/s to m/s.
+The U/V components and their speed magnitude are retained, converted from
+cm/s to m/s. Keeping direction is required by the animated vector layer.
 
 COVERAGE LIMIT: this product ends 2019-03-30. Temperature and salinity run to
 2026, so if the window in download_incois.py is moved past that date this
@@ -40,10 +41,23 @@ def main() -> None:
         print("No current data in this window — leaving the variable out.")
         return
 
-    speed = np.sqrt(ds["GEO_U"] ** 2 + ds["GEO_V"] ** 2) / 100.0  # cm/s -> m/s
-    speed = speed.assign_coords(time=ds["time"])
+    u = (ds["GEO_U"] / 100.0).assign_coords(time=ds["time"])
+    v = (ds["GEO_V"] / 100.0).assign_coords(time=ds["time"])
+    speed = np.sqrt(u ** 2 + v ** 2)
+    monthly_u = monthly_on_base_grid(u, base)
+    monthly_v = monthly_on_base_grid(v, base)
     monthly = monthly_on_base_grid(speed, base)
     base.close()
+
+    common = {
+        "units": "m/s",
+        "source": (
+            "INCOIS ERDDAP incois_valueadded_products_datasets — "
+            "monthly mean of 10-day geostrophic-current fields"
+        ),
+    }
+    attach("current_u", monthly_u, {**common, "long_name": "eastward_geostrophic_current"})
+    attach("current_v", monthly_v, {**common, "long_name": "northward_geostrophic_current"})
 
     attach(
         "current_speed",
@@ -51,10 +65,7 @@ def main() -> None:
         {
             "units": "m/s",
             "long_name": "surface_geostrophic_current_speed",
-            "source": (
-                "INCOIS ERDDAP incois_valueadded_products_datasets — "
-                "sqrt(GEO_U^2 + GEO_V^2), monthly mean of 10-day fields"
-            ),
+            "source": common["source"] + "; sqrt(U^2 + V^2)",
         },
     )
 
