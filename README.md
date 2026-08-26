@@ -53,19 +53,31 @@ never drift out of alignment.
 
 ## Deployment
 
-`vercel.json` deploys **the frontend only**. Build settings are in the file, so
-no dashboard configuration is needed — point Vercel at this repo and it will
-run `npm --prefix frontend ci && npm --prefix frontend run build` and serve
-`frontend/dist`.
+Point Vercel at this repo and deploy — **no backend, no environment
+variables, no dashboard configuration required.** Build settings live in
+`vercel.json`.
 
-Set one environment variable in the Vercel project:
+This works because the backend serves a *fixed* NetCDF snapshot, so every
+endpoint is deterministic. `backend/data/export_static.py` pre-renders the
+entire API to `frontend/public/api-static/` (578 KB for 120 slices + floats +
+meta), which is committed and served as plain static files.
 
-| Variable | Value |
-|---|---|
-| `VITE_API_BASE` | Public URL of your deployed backend, e.g. `https://oceanscope-api.onrender.com` |
+| Mode | When | Data comes from |
+|---|---|---|
+| **Live** | `npm run dev`, or any build with `VITE_API_BASE` set | The FastAPI backend |
+| **Static** | A production build with no `VITE_API_BASE` | `public/api-static/` |
 
-Without it the frontend falls back to `http://127.0.0.1:8000` and will only
-work against a locally running backend.
+Set `VITE_API_BASE` only if you *want* a live backend (e.g. to serve data that
+changes). Otherwise leave it unset and the deploy is entirely self-contained.
+
+**Re-run the exporter after changing the dataset or any response shape:**
+
+```bash
+backend/venv/bin/python backend/data/export_static.py
+```
+
+Stale slices are deleted on each run, so the snapshot can never drift out of
+sync with the API's current shape.
 
 ### The backend does not run on Vercel
 
