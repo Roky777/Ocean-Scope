@@ -5,6 +5,7 @@ import * as THREE from "three";
 import Terrain from "./Terrain";
 import Land from "./Land";
 import FloatMarkers from "./FloatMarkers";
+import HazardHighlight from "./HazardHighlight";
 import { fillGaps, upsample, WIDTH, HEIGHT, RELIEF } from "../grid";
 
 /**
@@ -64,6 +65,7 @@ export default function Scene({
   colormap,
   land,
   floats,
+  highlight,
   selectedId,
   onSelectFloat,
   onTerrainReady,
@@ -119,6 +121,9 @@ export default function Scene({
           />
         )}
         {field && land && <Land land={land} bounds={field.bounds} />}
+        {field && highlight && (
+          <HazardHighlight advisory={highlight} bounds={field.bounds} />
+        )}
         {field && filled && floats.length > 0 && (
           <FloatMarkers
             floats={floats}

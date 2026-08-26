@@ -34,6 +34,22 @@ const MAPS = {
     [235, 226, 100],
     [253, 238, 153],
   ],
+  // Hazard severity ramp for Cyclone Heat Potential: calm teal -> caution
+  // amber -> alarm red. Deliberately NOT a rainbow: the eye should jump
+  // straight to the red zones and nothing else should compete.
+  risk: [
+    [16, 48, 62],
+    [22, 79, 92],
+    [30, 112, 110],
+    [66, 143, 106],
+    [131, 167, 87],
+    [196, 182, 71],
+    [232, 168, 56],
+    [231, 132, 47],
+    [219, 92, 47],
+    [196, 54, 51],
+    [158, 26, 48],
+  ],
   // Pale yellow -> green -> teal -> deep navy (cmocean speed, reversed).
   speed: [
     [255, 253, 205],

@@ -63,6 +63,12 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"  floats unavailable ({exc}) - run fetch_argo.py first", file=sys.stderr)
 
+    # Hazard grids, one per timestep.
+    from app import hazard as hazard_mod
+
+    for t in range(len(meta["timesteps"])):
+        total += write(OUT / "hazard" / f"{t}.json", hazard_mod.get_hazard(timestep=t))
+
     variables = [v["id"] for v in meta["variables"] if v.get("available")]
     depths = meta["depths"]
     n_time = len(meta["timesteps"])
@@ -78,7 +84,7 @@ def main() -> None:
                 count += 1
 
     print(
-        f"wrote {count} slices + meta + floats to {OUT.relative_to(ROOT)}\n"
+        f"wrote {count} slices + hazard + meta + floats to {OUT.relative_to(ROOT)}\n"
         f"  variables={variables} depths={depths} timesteps={n_time}\n"
         f"  total {total / 1024:.0f} KB"
     )

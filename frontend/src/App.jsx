@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Scene from "./scene/Scene";
-import TopBar from "./ui/TopBar";
+import AppNav from "./ui/AppNav";
+import Splash from "./ui/Splash";
+import ExploreCaption from "./ui/ExploreCaption";
+import HazardView from "./views/HazardView";
+import AboutView from "./views/AboutView";
 import SidePanel from "./ui/SidePanel";
 import Colorbar from "./ui/Colorbar";
 import FloatProfile from "./ui/FloatProfile";
@@ -14,6 +18,7 @@ import {
   fetchField,
   fetchFloats,
   fetchLand,
+  fetchHazard,
   prefetchTimesteps,
   prefetchDepths,
 } from "./api";
@@ -30,6 +35,14 @@ export default function App() {
   const [variable, setVariable] = useState("temperature");
   const [depth, setDepth] = useState(0);
   const [timestep, setTimestep] = useState(0);
+
+  // Application shell state.
+  const [view, setView] = useState("explorer");
+  const [mode, setMode] = useState("forecaster");
+  const [hazard, setHazard] = useState(null);
+  const [hazardLoading, setHazardLoading] = useState(false);
+  const [selectedAdvisory, setSelectedAdvisory] = useState(null);
+  const [splash, setSplash] = useState(true);
 
   const [openTab, setOpenTab] = useState(null); // collapsed on load, per spec
   const [selectedFloat, setSelectedFloat] = useState(null);
@@ -158,10 +171,51 @@ export default function App() {
 
   const ready = Boolean(meta && field && range && range.min != null);
 
+  // The Hazard section reuses the whole 3D scene, just fed a different grid.
+  // Keeping one Canvas mounted means switching sections re-colours the terrain
+  // through the existing eased transition instead of tearing the scene down.
+  const showingHazard = view === "hazard" && hazard;
+  const sceneField = showingHazard ? hazard : field;
+  const sceneRange = showingHazard ? hazard.range : range;
+  const sceneColormap = showingHazard ? "risk" : field?.colormap ?? "thermal";
+
   const handleVariable = (id) => {
     setVariable(id);
     setSelectedFloat(null);
   };
+
+  // Hazard grid follows the active timestep, and is only fetched when the
+  // section is actually visited.
+  useEffect(() => {
+    if (view !== "hazard") return;
+    let cancelled = false;
+    setHazardLoading(true);
+    fetchHazard(timestep)
+      .then((h) => !cancelled && setHazard(h))
+      .catch((e) => !cancelled && pushToast(`Hazard assessment unavailable: ${e.message}`))
+      .finally(() => !cancelled && setHazardLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [view, timestep, pushToast]);
+
+  // Advisory count for the nav badge: fetched once so the badge is meaningful
+  // before the user ever opens the section.
+  useEffect(() => {
+    if (!meta) return;
+    fetchHazard(timestep).then(setHazard).catch(() => {});
+  }, [meta, timestep]);
+
+  // Hold the splash until the scene is genuinely ready, then fade it out.
+  useEffect(() => {
+    if (booting) return;
+    const t = setTimeout(() => setSplash(false), 450);
+    return () => clearTimeout(t);
+  }, [booting]);
+
+  useEffect(() => {
+    if (mode === "explore" && openTab === "colorbar") setOpenTab(null);
+  }, [mode, openTab]);
 
   const handleSelectFloat = (f) => {
     setPickedPoint(null); // only one detail panel at a time
@@ -175,14 +229,15 @@ export default function App() {
 
   return (
     <div className="app">
-      {ready && (
+      {ready && view !== "about" && (
         <Scene
           resetSignal={resetSignal}
-          field={field}
-          range={range}
-          colormap={field.colormap}
+          field={sceneField}
+          range={sceneRange}
+          colormap={sceneColormap}
           land={land}
-          floats={floats}
+          floats={view === "hazard" ? [] : floats}
+          highlight={view === "hazard" ? selectedAdvisory : null}
           selectedId={selectedFloat?.id}
           onSelectFloat={handleSelectFloat}
           onHoverPoint={setHoverPoint}
@@ -193,12 +248,25 @@ export default function App() {
 
       <Loading show={booting} text={meta ? "Rendering ocean surface…" : "Loading ocean data…"} />
 
-      {meta && (
-        <TopBar variables={meta.variables} active={variable} onChange={handleVariable} />
-      )}
+      <AppNav
+        view={view}
+        onView={(v) => {
+          setView(v);
+          setPlaying(false);
+          setSelectedFloat(null);
+          setPickedPoint(null);
+        }}
+        variables={meta?.variables}
+        variable={variable}
+        onVariable={handleVariable}
+        mode={mode}
+        onMode={setMode}
+        alertCount={hazard?.advisories?.length ?? 0}
+      />
 
-      {meta && (
+      {meta && view === "explorer" && (
         <SidePanel
+          mode={mode}
           open={openTab}
           onToggle={setOpenTab}
           variables={meta.variables}
@@ -224,23 +292,27 @@ export default function App() {
         />
       )}
 
-      {ready && (
+      {ready && view !== "about" && (
         <Colorbar
-          label={field.label}
-          units={field.units}
-          colormap={field.colormap}
-          range={range}
-          context={`${field.month_label} · ${field.depth} m${
-            scaleMode === "slice" ? "" : ` · scale: ${scaleMode === "global" ? "all depths" : "this depth"}`
-          }`}
+          label={sceneField.label}
+          units={sceneField.units}
+          colormap={sceneColormap}
+          range={sceneRange}
+          context={
+            view === "hazard"
+              ? `${sceneField.month_label} · advisory threshold ${hazard?.thresholds?.moderate ?? 50} kJ/cm²`
+              : `${field.month_label} · ${field.depth} m${
+                  scaleMode === "slice" ? "" : ` · scale: ${scaleMode === "global" ? "all depths" : "this depth"}`
+                }`
+          }
         />
       )}
 
-      {ready && !pickedPoint && !selectedFloat && (
+      {ready && view === "explorer" && !pickedPoint && !selectedFloat && (
         <PointTooltip point={hoverPoint} label={field.label} units={field.units} />
       )}
 
-      {shownFloat && (
+      {shownFloat && view === "explorer" && (
         <FloatProfile
           float={shownFloat}
           closing={floatClosing}
@@ -254,7 +326,7 @@ export default function App() {
         />
       )}
 
-      {ready && shownPoint && (
+      {ready && view === "explorer" && shownPoint && (
         <PointProfile
           point={shownPoint}
           closing={pointClosing}
@@ -269,7 +341,37 @@ export default function App() {
         />
       )}
 
-      {meta && (
+      {ready && view === "explorer" && mode === "explore" && (
+        <ExploreCaption
+          variable={variable}
+          label={field.label}
+          depth={field.depth}
+          monthLabel={field.month_label}
+          range={range}
+          units={field.units}
+        />
+      )}
+
+      {view === "hazard" && meta && (
+        <HazardView
+          hazard={hazard}
+          loading={hazardLoading}
+          timestep={timestep}
+          timesteps={meta.timesteps}
+          onTimestep={setTimestep}
+          selectedId={selectedAdvisory?.id}
+          onSelect={setSelectedAdvisory}
+        />
+      )}
+
+      {view === "about" && <AboutView />}
+
+      <Splash
+        show={splash}
+        status={meta ? "Rendering ocean surface…" : "Fetching INCOIS ocean data…"}
+      />
+
+      {meta && view !== "about" && (
         <div className="source-label" title={meta.source}>
           <span className="source-dot" aria-hidden="true" />
           Source: {meta.source_label}
@@ -277,6 +379,7 @@ export default function App() {
         </div>
       )}
 
+      {view !== "about" && (
       <button
         className="reset-view-btn"
         onClick={() => setResetSignal((n) => n + 1)}
@@ -284,6 +387,7 @@ export default function App() {
       >
         <span aria-hidden="true">⌂</span> Reset view
       </button>
+      )}
 
       {fetching && (
         <div className="fetch-chip" role="status">

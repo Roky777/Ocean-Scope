@@ -22,6 +22,10 @@ export const usingStaticData = LIVE === null;
 const url = {
   meta: () => (LIVE ? `${LIVE}/api/meta` : `${STATIC_ROOT}/meta.json`),
   floats: () => (LIVE ? `${LIVE}/api/floats` : `${STATIC_ROOT}/floats.json`),
+  hazard: (timestep) =>
+    LIVE
+      ? `${LIVE}/api/hazard?timestep=${timestep}`
+      : `${STATIC_ROOT}/hazard/${timestep}.json`,
   field: (variable, depth, timestep) =>
     LIVE
       ? `${LIVE}/api/field?variable=${variable}&depth=${depth}&timestep=${timestep}`
@@ -96,4 +100,17 @@ export async function fetchLand() {
   const res = await fetch("/land.json");
   if (!res.ok) throw new Error(`land.json: ${res.status}`);
   return res.json();
+}
+
+// Hazard grids are as immutable as field slices, so cache them the same way.
+const hazardCache = new Map();
+
+export function fetchHazard(timestep) {
+  if (hazardCache.has(timestep)) return hazardCache.get(timestep);
+  const p = getJSON(url.hazard(timestep)).catch((e) => {
+    hazardCache.delete(timestep);
+    throw e;
+  });
+  hazardCache.set(timestep, p);
+  return p;
 }

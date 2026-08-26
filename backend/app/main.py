@@ -19,7 +19,7 @@ import xarray as xr
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import ocean
+from . import hazard, ocean
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 NC_PATH = DATA_DIR / "ocean_temp.nc"
@@ -51,6 +51,7 @@ _sst_global_range: tuple[float, float] = (0.0, 1.0)
 
 
 app.include_router(ocean.router)
+app.include_router(hazard.router)
 
 
 @app.on_event("startup")

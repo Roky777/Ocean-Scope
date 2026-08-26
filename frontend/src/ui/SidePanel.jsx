@@ -17,6 +17,7 @@ const TABS = [
  * so the scene is not crowded on load; clicking a tab expands its panel.
  */
 export default function SidePanel({
+  mode,
   open,
   onToggle,
   variables,
@@ -43,7 +44,9 @@ export default function SidePanel({
   return (
     <div className={open ? "dock open" : "dock"}>
       <nav className="tab-strip" aria-label="Controls">
-        {TABS.map((t) => (
+        {/* Explore mode is for outreach: the colour-scale controls are an
+            expert affordance and only add noise there. */}
+        {TABS.filter((t) => mode !== "explore" || t.id !== "colorbar").map((t) => (
           <button
             key={t.id}
             className={open === t.id ? "tab active" : "tab"}
