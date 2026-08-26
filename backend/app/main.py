@@ -11,6 +11,7 @@ the same dimension names: time, depth, lat, lon.
 """
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +35,10 @@ app = FastAPI(title="OceanScope API", version="0.3.0")
 # not silently break the app. Tighten this to an explicit list before deploying.
 app.add_middleware(
     CORSMiddleware,
+    # Local dev is always allowed. Deployed frontends (e.g. a Vercel URL) are
+    # added via ALLOWED_ORIGINS, a comma-separated list, so the browser is not
+    # blocked by CORS when the API runs on a different host to the UI.
+    allow_origins=[o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()],
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
     allow_methods=["GET"],
     allow_headers=["*"],

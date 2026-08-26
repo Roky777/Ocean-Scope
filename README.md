@@ -51,6 +51,55 @@ Open **http://localhost:5180**.
 levels — the ocean grid and the coastline geometry both import it, so they can
 never drift out of alignment.
 
+## Deployment
+
+`vercel.json` deploys **the frontend only**. Build settings are in the file, so
+no dashboard configuration is needed — point Vercel at this repo and it will
+run `npm --prefix frontend ci && npm --prefix frontend run build` and serve
+`frontend/dist`.
+
+Set one environment variable in the Vercel project:
+
+| Variable | Value |
+|---|---|
+| `VITE_API_BASE` | Public URL of your deployed backend, e.g. `https://oceanscope-api.onrender.com` |
+
+Without it the frontend falls back to `http://127.0.0.1:8000` and will only
+work against a locally running backend.
+
+### The backend does not run on Vercel
+
+This is deliberate, not an oversight. The API is a long-lived process that
+opens NetCDF files with xarray and holds the grids in memory. It does not fit
+Vercel's Python serverless model:
+
+- `xarray` + `netCDF4` + `numpy` + `pandas` are well over the serverless
+  bundle limit once unzipped.
+- The NetCDF files are build artifacts (gitignored, ~34 MB) — they are not in
+  the repo and would have to be fetched on every cold start.
+- Each invocation would re-open and re-read the dataset.
+
+Deploy it to any container host instead (Render, Fly.io, Railway, a VM):
+
+```bash
+pip install -r backend/requirements.txt
+python backend/data/download_incois.py        # fetch the NetCDF first
+python backend/data/fetch_argo.py
+export ALLOWED_ORIGINS="https://your-app.vercel.app"
+uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+`ALLOWED_ORIGINS` is a comma-separated list added to the CORS allow-list.
+Local dev origins are always permitted, so you only need it in production.
+
+### Data is not in the repo
+
+A fresh clone has no NetCDF files. Run the scripts in `backend/data/` (see
+[Setup](#setup)) before starting the API, or every endpoint will 503 with a
+message naming the script to run. The one exception is
+`frontend/public/land.json`, which **is** committed — the deployed frontend
+fetches it at runtime to draw the landmasses.
+
 ## How the terrain is built
 
 For every lat/lon cell of the fetched grid, the value at the current
@@ -99,5 +148,6 @@ Interactive docs at http://localhost:8000/docs.
 
 ## Not built yet
 
-True volumetric / ray-marched rendering · currents · per-point hover
-inspection · surface shading effects.
+True volumetric / ray-marched rendering · current vectors · isosurface
+extraction · vertical exaggeration · log-scale and custom palettes ·
+hazard / forecast layers.
