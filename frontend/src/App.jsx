@@ -57,6 +57,10 @@ export default function App() {
   // squeezes any single month into a fraction of the ramp and makes the
   // terrain look uniformly one colour.
   const [scaleMode, setScaleMode] = useState("slice");
+  // Colour-scale overrides. null means "follow the variable's own default".
+  const [scaleTypeOverride, setScaleTypeOverride] = useState(null);
+  const [paletteOverride, setPaletteOverride] = useState(null);
+  const [manualRange, setManualRange] = useState(null);
   const [playing, setPlaying] = useState(false);
 
   const [booting, setBooting] = useState(true);
@@ -174,14 +178,32 @@ export default function App() {
   // The Hazard section reuses the whole 3D scene, just fed a different grid.
   // Keeping one Canvas mounted means switching sections re-colours the terrain
   // through the existing eased transition instead of tearing the scene down.
+  // Each variable carries its own sensible default (chlorophyll is log), which
+  // the user can override per variable.
+  const scaleType = scaleTypeOverride ?? field?.scale ?? "linear";
+  const palette = paletteOverride ?? field?.colormap ?? "thermal";
+
+  const manualApplied =
+    manualRange &&
+    manualRange.min !== "" && manualRange.max !== "" &&
+    Number.isFinite(Number(manualRange.min)) &&
+    Number.isFinite(Number(manualRange.max)) &&
+    Number(manualRange.max) > Number(manualRange.min)
+      ? { min: Number(manualRange.min), max: Number(manualRange.max) }
+      : null;
+
   const showingHazard = view === "hazard" && hazard;
   const sceneField = showingHazard ? hazard : field;
-  const sceneRange = showingHazard ? hazard.range : range;
-  const sceneColormap = showingHazard ? "risk" : field?.colormap ?? "thermal";
+  const sceneRange = showingHazard ? hazard.range : manualApplied ?? range;
+  const sceneColormap = showingHazard ? "risk" : palette;
+  const sceneScaleType = showingHazard ? "linear" : scaleType;
 
   const handleVariable = (id) => {
     setVariable(id);
     setSelectedFloat(null);
+    setScaleTypeOverride(null);
+    setPaletteOverride(null);
+    setManualRange(null);
   };
 
   // Hazard grid follows the active timestep, and is only fetched when the
@@ -209,7 +231,7 @@ export default function App() {
   // Hold the splash until the scene is genuinely ready, then fade it out.
   useEffect(() => {
     if (booting) return;
-    const t = setTimeout(() => setSplash(false), 450);
+    const t = setTimeout(() => setSplash(false), 1250);
     return () => clearTimeout(t);
   }, [booting]);
 
@@ -223,6 +245,13 @@ export default function App() {
   };
 
   const handlePickPoint = (p) => {
+    // If a dock panel is open, the first click on the scene only dismisses it.
+    // Otherwise dismissing a panel would also drop a point-inspection panel in
+    // its place, which feels like the app fighting you.
+    if (openTab) {
+      setOpenTab(null);
+      return;
+    }
     setSelectedFloat(null);
     setPickedPoint(p);
   };
@@ -235,6 +264,7 @@ export default function App() {
           field={sceneField}
           range={sceneRange}
           colormap={sceneColormap}
+          scaleType={sceneScaleType}
           land={land}
           floats={view === "hazard" ? [] : floats}
           highlight={view === "hazard" ? selectedAdvisory : null}
@@ -275,6 +305,8 @@ export default function App() {
           depths={meta.depths}
           depth={depth}
           onDepth={setDepth}
+          surfaceOnly={Boolean(field?.surface)}
+          variableLabel={field?.label ?? ""}
           timesteps={meta.timesteps}
           timestep={timestep}
           fetching={fetching}
@@ -284,10 +316,16 @@ export default function App() {
           }}
           playing={playing}
           onPlayToggle={() => setPlaying((p) => !p)}
-          colormap={field?.colormap ?? "thermal"}
-          range={range}
+          colormap={palette}
+          range={manualApplied ?? range}
           scaleMode={scaleMode}
           onScaleMode={setScaleMode}
+          scaleType={scaleType}
+          onScaleType={setScaleTypeOverride}
+          palette={palette}
+          onPalette={setPaletteOverride}
+          manualRange={manualRange}
+          onManualRange={setManualRange}
           units={activeVar?.units ?? ""}
         />
       )}
@@ -298,10 +336,11 @@ export default function App() {
           units={sceneField.units}
           colormap={sceneColormap}
           range={sceneRange}
+          scaleType={sceneScaleType}
           context={
             view === "hazard"
               ? `${sceneField.month_label} · advisory threshold ${hazard?.thresholds?.moderate ?? 50} kJ/cm²`
-              : `${field.month_label} · ${field.depth} m${
+              : `${field.month_label}${field.surface ? " · surface" : ` · ${field.depth} m`}${
                   scaleMode === "slice" ? "" : ` · scale: ${scaleMode === "global" ? "all depths" : "this depth"}`
                 }`
           }
@@ -366,10 +405,7 @@ export default function App() {
 
       {view === "about" && <AboutView />}
 
-      <Splash
-        show={splash}
-        status={meta ? "Rendering ocean surface…" : "Fetching INCOIS ocean data…"}
-      />
+      <Splash show={splash} ready={!booting} />
 
       {meta && view !== "about" && (
         <div className="source-label" title={meta.source}>

@@ -12,6 +12,18 @@ const SOURCES = [
     tag: "Real in-situ instrument data",
   },
   {
+    name: "INCOIS ERDDAP — incois_valueadded_products_datasets",
+    what: "INCOIS's geostrophic current components (GEO_U/GEO_V), derived from their Argo analysis. Drives the Current Speed variable as sqrt(u²+v²).",
+    url: "https://erddap.incois.gov.in/erddap/griddap/incois_valueadded_products_datasets.html",
+    tag: "Real derived product",
+  },
+  {
+    name: "INCOIS ERDDAP — incois_oceansat2_datasets",
+    what: "Chlorophyll-a from Oceansat-2's Ocean Colour Monitor, averaged to monthly means and interpolated onto the 1° grid.",
+    url: "https://erddap.incois.gov.in/erddap/griddap/incois_oceansat2_datasets.html",
+    tag: "Real satellite observations",
+  },
+  {
     name: "Natural Earth 1:10m physical land",
     what: "Public-domain coastline and island polygons, clipped to the region and extruded into the 3D scene.",
     url: "https://www.naturalearthdata.com/",
@@ -105,9 +117,24 @@ export default function AboutView() {
               operational INCOIS bulletin.
             </li>
             <li>
-              <strong>Currents are not shown.</strong> The gridded Argo product
-              carries no velocity field. INCOIS publishes geostrophic currents
-              separately, covering 2004–2019 only.
+              <strong>The window is Apr 2018 – Mar 2019.</strong> Temperature
+              and salinity run to 2026, but INCOIS's geostrophic currents stop
+              at 2019-03 and Oceansat-2 chlorophyll at 2020-05. This is the most
+              recent span where every variable exists, so all four layers
+              describe the same months. Move the window later and the extra
+              variables report themselves unavailable rather than being faked.
+            </li>
+            <li>
+              <strong>Geostrophic current speeds have a long tail.</strong> The
+              median across the region is about 0.15 m/s, which is realistic,
+              but scattered cells reach several m/s where the Coriolis parameter
+              is small and the geostrophic approximation weakens. Use the
+              Colorbar panel's custom range to clamp the scale when comparing.
+            </li>
+            <li>
+              <strong>Current Speed and Chlorophyll-a are surface products.</strong>{" "}
+              They have no depth dimension, so the depth control does not apply
+              to them and says so rather than silently doing nothing.
             </li>
           </ul>
         </section>

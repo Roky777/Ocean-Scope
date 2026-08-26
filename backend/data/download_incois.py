@@ -55,9 +55,13 @@ SERVER = "https://erddap.incois.gov.in/erddap/griddap/incois_argo_mnt_VAM.nc"
 # coastline geometry always cover exactly the same area.
 from region import LAT_MIN, LAT_MAX, LON_MIN, LON_MAX, DEPTHS  # noqa: E402
 
-# Twelve most recent months. Update END_MONTH as INCOIS publishes more.
-START_MONTH = "2025-08-15"
-END_MONTH = "2026-07-15"
+# Twelve months chosen so that EVERY variable the app offers exists over the
+# same period. Temperature/salinity run to 2026, but INCOIS's geostrophic
+# currents stop at 2019-03 and Oceansat-2 chlorophyll at 2020-05, so this is
+# the most recent window where all four overlap. Shift it later and the extra
+# variables correctly report themselves unavailable rather than being faked.
+START_MONTH = "2018-04-15"
+END_MONTH = "2019-03-15"
 
 
 def build_url() -> str:

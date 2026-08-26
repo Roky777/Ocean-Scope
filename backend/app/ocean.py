@@ -54,15 +54,35 @@ VARIABLES = {
         "colormap": "haline",
         "available": True,
     },
+    # Surface-only variables. `surface` tells the UI that the depth control
+    # does not apply, rather than silently ignoring the depth it is given.
     "current_speed": {
         "id": "current_speed",
         "label": "Current Speed",
         "units": "m/s",
         "colormap": "speed",
-        "available": False,
-        "note": "Needs a currents dataset (CMEMS/OSCAR) — not wired up yet",
+        "available": True,
+        "surface": True,
+        "scale": "linear",
+        "note": "INCOIS geostrophic currents; surface only, coverage ends 2019-03",
+    },
+    "chlorophyll": {
+        "id": "chlorophyll",
+        "label": "Chlorophyll-a",
+        "units": "mg/m³",
+        "colormap": "algae",
+        "available": True,
+        "surface": True,
+        # Chlorophyll spans orders of magnitude, so a log ramp is the
+        # conventional default for it.
+        "scale": "log",
+        "note": "Oceansat-2 OCM; surface only, coverage 2011-02 to 2020-05",
     },
 }
+
+
+def _is_surface(spec: dict) -> bool:
+    return bool(spec.get("surface"))
 
 router = APIRouter()
 
@@ -77,18 +97,25 @@ def load() -> None:
 
     if DATA_PATH.exists():
         _ds = xr.open_dataset(DATA_PATH)
-        for name in ("temperature", "salinity"):
+        for name in VARIABLES:
             if name not in _ds:
                 continue
             var = _ds[name]
-            _ranges[name] = {
-                "global": _minmax(var.values),
-                # Per-depth ranges: the colorbar retargets when you change depth.
-                "by_depth": {
-                    float(d): _minmax(var.isel(depth=i).values)
-                    for i, d in enumerate(_ds["depth"].values)
-                },
-            }
+            if "depth" in var.dims:
+                _ranges[name] = {
+                    "global": _minmax(var.values),
+                    # Per-depth ranges: the colorbar retargets on depth change.
+                    "by_depth": {
+                        float(d): _minmax(var.isel(depth=i).values)
+                        for i, d in enumerate(_ds["depth"].values)
+                    },
+                }
+            else:
+                g = _minmax(var.values)
+                _ranges[name] = {
+                    "global": g,
+                    "by_depth": {float(d): g for d in _ds["depth"].values},
+                }
 
     if PROFILES_PATH.exists():
         _profiles = json.loads(PROFILES_PATH.read_text())
@@ -138,7 +165,10 @@ def get_meta():
 
     return {
         "region": "Indian Ocean",
-        "variables": list(VARIABLES.values()),
+        "variables": [
+            {**spec, "available": spec["id"] in ds}
+            for spec in VARIABLES.values()
+        ],
         "default_variable": "temperature",
         "depths": depths,
         "timesteps": [
@@ -170,30 +200,38 @@ def get_field(
     spec = VARIABLES.get(variable)
     if spec is None:
         raise HTTPException(404, f"unknown variable '{variable}'")
-    if not spec["available"]:
+    if variable not in ds:
         raise HTTPException(
             404,
-            f"{spec['label']} is not available in this dataset — "
+            f"{spec['label']} is not in this dataset — "
             f"{spec.get('note', 'no data source wired up')}",
         )
-    if variable not in ds:
-        raise HTTPException(404, f"'{variable}' is not in {DATA_PATH.name}")
 
     depths = [float(d) for d in ds["depth"].values]
-    if depth is None:
+    surface = _is_surface(spec)
+
+    if surface:
+        # No depth dimension: the depth control does not apply and any value
+        # passed in is reported back as the surface level rather than honoured.
         depth = depths[0]
-    if depth not in depths:
-        raise HTTPException(
-            404,
-            f"No data at {depth:g} m — available depths: "
-            + ", ".join(f"{d:g} m" for d in depths),
-        )
+    else:
+        if depth is None:
+            depth = depths[0]
+        if depth not in depths:
+            raise HTTPException(
+                404,
+                f"No data at {depth:g} m — available depths: "
+                + ", ".join(f"{d:g} m" for d in depths),
+            )
+
     n_time = ds.sizes["time"]
     if timestep >= n_time:
         raise HTTPException(404, f"No data for timestep {timestep} (0..{n_time - 1})")
 
-    di = depths.index(depth)
-    field = ds[variable].isel(time=timestep, depth=di)
+    if surface:
+        field = ds[variable].isel(time=timestep)
+    else:
+        field = ds[variable].isel(time=timestep, depth=depths.index(depth))
     grid, lats, lons = _downsample(field.values, ds["lat"].values, ds["lon"].values)
 
     finite = grid[np.isfinite(grid)]
@@ -204,6 +242,8 @@ def get_field(
         "label": spec["label"],
         "units": spec["units"],
         "colormap": spec["colormap"],
+        "surface": surface,
+        "scale": spec.get("scale", "linear"),
         "depth": depth,
         "timestep": timestep,
         "month": stamp["month"],

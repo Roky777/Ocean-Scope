@@ -38,6 +38,7 @@ export default function Terrain({
   filled,
   range,
   colormap,
+  scaleType = "linear",
   onReady,
   onHover,
   onPick,
@@ -69,7 +70,7 @@ export default function Terrain({
       const gridRow = rows - 1 - r;
       for (let c = 0; c < cols; c++) {
         const idx = r * cols + c;
-        const t = normalise(filled[gridRow][c], range.min, range.max);
+        const t = normalise(filled[gridRow][c], range.min, range.max, scaleType);
         heights[idx] = t * RELIEF;
         const rgb = toLinear(...sample(colormap, t));
         colors[idx * 3] = rgb.r;
@@ -78,7 +79,7 @@ export default function Terrain({
       }
     }
     return { heights, colors };
-  }, [filled, range, colormap, rows, cols]);
+  }, [filled, range, colormap, scaleType, rows, cols]);
 
   // Heights excluding ripple, so the ripple never compounds into the data.
   const settled = useRef(new Float32Array(rows * cols));

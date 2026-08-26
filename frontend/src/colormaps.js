@@ -34,6 +34,22 @@ const MAPS = {
     [235, 226, 100],
     [253, 238, 153],
   ],
+  // cmocean `algae`: near-black through deep green to pale yellow-green. The
+  // conventional palette for chlorophyll / productivity, and deliberately
+  // unlike the temperature and salinity ramps so the variable is unmistakable.
+  algae: [
+    [8, 26, 20],
+    [13, 47, 33],
+    [17, 69, 44],
+    [23, 92, 52],
+    [38, 115, 55],
+    [61, 137, 56],
+    [90, 158, 57],
+    [124, 178, 60],
+    [161, 197, 71],
+    [201, 214, 96],
+    [233, 231, 138],
+  ],
   // Hazard severity ramp for Cyclone Heat Potential: calm teal -> caution
   // amber -> alarm red. Deliberately NOT a rainbow: the eye should jump
   // straight to the red zones and nothing else should compete.

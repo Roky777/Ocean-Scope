@@ -17,7 +17,36 @@ export const latToZ = (lat, b) =>
 export const latToShapeY = (lat, b) =>
   (((lat - b.lat_min) / (b.lat_max - b.lat_min)) - 0.5) * HEIGHT;
 
-export const normalise = (v, min, max) => (max === min ? 0.5 : (v - min) / (max - min));
+/**
+ * Map a value into 0..1 for the colour ramp.
+ *
+ * `scale` may be "linear" or "log". Log is the convention for quantities that
+ * span orders of magnitude (chlorophyll, and current speed, whose median here
+ * is ~0.15 m/s against a tail past 5 m/s). Non-positive values are clamped to
+ * a small epsilon so a log ramp never returns NaN.
+ */
+export function normalise(v, min, max, scale = "linear") {
+  if (max === min) return 0.5;
+  if (scale === "log") {
+    const eps = 1e-4;
+    const lo = Math.log(Math.max(min, eps));
+    const hi = Math.log(Math.max(max, eps * 10));
+    const x = Math.log(Math.max(v, eps));
+    return hi === lo ? 0.5 : (x - lo) / (hi - lo);
+  }
+  return (v - min) / (max - min);
+}
+
+/** Inverse of `normalise`, for placing colorbar ticks. */
+export function denormalise(t, min, max, scale = "linear") {
+  if (scale === "log") {
+    const eps = 1e-4;
+    const lo = Math.log(Math.max(min, eps));
+    const hi = Math.log(Math.max(max, eps * 10));
+    return Math.exp(lo + t * (hi - lo));
+  }
+  return min + t * (max - min);
+}
 
 /**
  * Bleed values outward into null cells so the terrain surface stays continuous

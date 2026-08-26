@@ -28,8 +28,15 @@ export default function AppNav({
     const close = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
     };
+    const key = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", key);
+    };
   }, [open]);
 
   const current = variables?.find((v) => v.id === variable);
@@ -63,7 +70,10 @@ export default function AppNav({
 
       <div className="appnav-right">
         {/* Mode switch: the brief calls for an operational tool AND a public
-            outreach view, so this is a first-class control, not a setting. */}
+            outreach view, so this is a first-class control, not a setting.
+            It only governs the Explorer view, so it is hidden elsewhere
+            rather than sitting there inert. */}
+        {view === "explorer" && (
         <div className="modeswitch" role="group" aria-label="Interface mode">
           <button
             className={mode === "forecaster" ? "modebtn active" : "modebtn"}
@@ -80,6 +90,7 @@ export default function AppNav({
             Explore
           </button>
         </div>
+        )}
 
         {view === "explorer" && variables && (
           <div className="variable-select" ref={ref}>

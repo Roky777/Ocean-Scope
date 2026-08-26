@@ -1,4 +1,6 @@
-import { gradient } from "../colormaps";
+import { useEffect, useRef } from "react";
+import { COLORMAP_NAMES, gradient } from "../colormaps";
+import DepthSlider from "./DepthSlider";
 import { useClosable } from "./useClosable";
 
 const TABS = [
@@ -34,15 +36,42 @@ export default function SidePanel({
   fetching,
   colormap,
   range,
+  surfaceOnly,
+  variableLabel,
   scaleMode,
   onScaleMode,
+  scaleType,
+  onScaleType,
+  palette,
+  onPalette,
+  manualRange,
+  onManualRange,
   units,
 }) {
   // `view` lags `open` by one animation so closing can animate out.
   const [view, closing] = useClosable(open);
+  const dockRef = useRef(null);
+
+  // Dismiss on outside click or Escape. Pointerdown rather than click so the
+  // panel closes on press, matching how native menus behave.
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => {
+      if (dockRef.current && !dockRef.current.contains(e.target)) onToggle(null);
+    };
+    const key = (e) => {
+      if (e.key === "Escape") onToggle(null);
+    };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("pointerdown", away);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open, onToggle]);
 
   return (
-    <div className={open ? "dock open" : "dock"}>
+    <div className={open ? "dock open" : "dock"} ref={dockRef}>
       <nav className="tab-strip" aria-label="Controls">
         {/* Explore mode is for outreach: the colour-scale controls are an
             expert affordance and only add noise there. */}
@@ -95,31 +124,20 @@ export default function SidePanel({
 
           {view === "depth" && (
             <div className="panel-body">
-              <p className="hint">Surface at the top, deepest at the bottom.</p>
-              <div className="depth-control">
-                <input
-                  className="depth-slider"
-                  type="range"
-                  min={0}
-                  max={depths.length - 1}
-                  step={1}
-                  value={depths.indexOf(depth)}
-                  onChange={(e) => onDepth(depths[Number(e.target.value)])}
-                  aria-label="Depth level"
-                />
-                <ul className="depth-scale">
-                  {depths.map((d) => (
-                    <li key={d}>
-                      <button
-                        className={d === depth ? "depth-step active" : "depth-step"}
-                        onClick={() => onDepth(d)}
-                      >
-                        {d} m
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              {surfaceOnly ? (
+                /* Say so plainly rather than showing a control that does
+                   nothing: these products are surface measurements. */
+                <p className="depth-na">
+                  <strong>{variableLabel}</strong> is a surface measurement, so
+                  there are no depth levels to move between. Switch to
+                  Temperature or Salinity to explore the water column.
+                </p>
+              ) : (
+                <>
+                  <p className="hint">Surface at the top, deepest at the bottom.</p>
+                  <DepthSlider depths={depths} depth={depth} onDepth={onDepth} />
+                </>
+              )}
             </div>
           )}
 
@@ -217,6 +235,81 @@ export default function SidePanel({
                   All
                 </button>
               </div>
+
+              <p className="hint">Distribution</p>
+              <div className="segmented">
+                <button
+                  className={scaleType === "linear" ? "seg active" : "seg"}
+                  onClick={() => onScaleType("linear")}
+                  title="Even steps in value"
+                >
+                  Linear
+                </button>
+                <button
+                  className={scaleType === "log" ? "seg active" : "seg"}
+                  onClick={() => onScaleType("log")}
+                  title="Even steps in ratio — for values spanning orders of magnitude"
+                >
+                  Logarithmic
+                </button>
+              </div>
+
+              <div className="stack">
+                <label className="field-label" htmlFor="cb-palette">Palette</label>
+                <select
+                  id="cb-palette"
+                  className="select-native"
+                  value={palette}
+                  onChange={(e) => onPalette(e.target.value)}
+                >
+                  {COLORMAP_NAMES.map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+                <div
+                  className="swatch"
+                  style={{ background: `linear-gradient(to right, ${gradient(palette)})` }}
+                />
+              </div>
+
+              <div className="stack">
+                <label className="field-label">Custom range</label>
+                <div className="range-inputs">
+                  <input
+                    className="num-input"
+                    type="number"
+                    step="any"
+                    placeholder={String(range?.min ?? "min")}
+                    value={manualRange?.min ?? ""}
+                    onChange={(e) =>
+                      onManualRange({ ...manualRange, min: e.target.value })
+                    }
+                    aria-label="Colour scale minimum"
+                  />
+                  <span className="range-dash" aria-hidden="true">–</span>
+                  <input
+                    className="num-input"
+                    type="number"
+                    step="any"
+                    placeholder={String(range?.max ?? "max")}
+                    value={manualRange?.max ?? ""}
+                    onChange={(e) =>
+                      onManualRange({ ...manualRange, max: e.target.value })
+                    }
+                    aria-label="Colour scale maximum"
+                  />
+                  {manualRange && (
+                    <button
+                      className="link-button"
+                      onClick={() => onManualRange(null)}
+                      title="Return to the automatic range"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <p className="hint small">
                 “This slice” uses the full gradient on the loaded data. The wider
                 scales keep colours comparable as you move through depth or time,

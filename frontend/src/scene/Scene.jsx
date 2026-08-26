@@ -12,18 +12,35 @@ import { fillGaps, upsample, WIDTH, HEIGHT, RELIEF } from "../grid";
  * Eases the camera back to its default framing when `signal` changes.
  * Tweened rather than snapped, so "Reset view" never feels like a jump cut.
  */
-function ResetView({ signal, target }) {
+function ResetView({ signal }) {
   const { camera, controls } = useThree();
   const tween = useRef(null);
+  const lastSignal = useRef(0);
 
+  // Only ever react to a genuinely NEW signal. The previous version also
+  // depended on a `target` array literal that was rebuilt on every render, so
+  // any re-render restarted the tween — the camera lerped home forever and
+  // overrode the user's input, which is what made the view feel stuck.
   useEffect(() => {
-    if (signal === 0) return; // no reset on first mount
+    if (signal === 0 || signal === lastSignal.current) return;
+    lastSignal.current = signal;
     tween.current = {
       t: 0,
       fromPos: camera.position.clone(),
-      fromTarget: controls?.target?.clone() ?? new THREE.Vector3(...target),
+      fromTarget: controls?.target?.clone() ?? HOME_TARGET.clone(),
     };
-  }, [signal, camera, controls, target]);
+  }, [signal, camera, controls]);
+
+  // Any manual interaction cancels the tween, so the two never fight for the
+  // camera. Without this a drag mid-flight stutters against the lerp.
+  useEffect(() => {
+    if (!controls) return;
+    const cancel = () => {
+      tween.current = null;
+    };
+    controls.addEventListener("start", cancel);
+    return () => controls.removeEventListener("start", cancel);
+  }, [controls]);
 
   useFrame((_, delta) => {
     const tw = tween.current;
@@ -37,7 +54,12 @@ function ResetView({ signal, target }) {
       controls.target.lerpVectors(tw.fromTarget, HOME_TARGET, e);
       controls.update();
     }
-    if (tw.t >= 1) tween.current = null;
+    if (tw.t >= 1) {
+      tween.current = null;
+      // Hand control back cleanly: sync OrbitControls' internal spherical
+      // state to where we actually left the camera.
+      controls?.update();
+    }
   });
 
   return null;
@@ -63,6 +85,7 @@ export default function Scene({
   onPickPoint,
   range,
   colormap,
+  scaleType,
   land,
   floats,
   highlight,
@@ -115,6 +138,7 @@ export default function Scene({
             filled={filled}
             range={range}
             colormap={colormap}
+            scaleType={scaleType}
             onReady={onTerrainReady}
             onHover={onHoverPoint}
             onPick={onPickPoint}
@@ -138,7 +162,7 @@ export default function Scene({
 
       <FloorGrid />
 
-      <ResetView signal={resetSignal} target={[0, RELIEF / 2, 0]} />
+      <ResetView signal={resetSignal} />
 
       <OrbitControls
         makeDefault
