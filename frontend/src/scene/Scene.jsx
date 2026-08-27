@@ -185,7 +185,7 @@ export default function Scene({
   return (
     <Canvas
       className="scene-canvas"
-      shadows
+      shadows="basic"
       camera={{ position: CAMERA_HOME, fov: 40 }}
       onPointerMissed={() => onSelectFloat(null)}
       dpr={[1, 2]}

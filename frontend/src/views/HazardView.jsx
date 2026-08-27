@@ -31,6 +31,7 @@ export default function HazardView({
   onMetric,
 }) {
   const [expanded, setExpanded] = useState(null);
+  const [mapOpen, setMapOpen] = useState(false);
 
   useEffect(() => {
     setExpanded(null);
@@ -44,17 +45,27 @@ export default function HazardView({
   const highest = sorted[0]?.severity ?? "none";
 
   return (
-    <aside className="hazard-panel" aria-label="Hazard advisory bulletin">
+    <aside className={`hazard-panel${mapOpen ? " map-open" : ""}`} aria-label="Hazard advisory bulletin">
       <header className="hazard-head">
         <div className="hazard-title-row">
           <h2 className="panel-title">Hazard Advisory</h2>
-          <span className={`bulletin-state bulletin-${highest}`}>
-            {advisories.length
-              ? `${advisories.length} active`
-              : loading
-                ? "assessing…"
-                : "no flags"}
-          </span>
+          <div className="hazard-head-actions">
+            <span className={`bulletin-state bulletin-${highest}`}>
+              {advisories.length
+                ? `${advisories.length} active`
+                : loading
+                  ? "assessing…"
+                  : "no flags"}
+            </span>
+            <button
+              type="button"
+              className="hazard-map-toggle"
+              onClick={() => setMapOpen((open) => !open)}
+              aria-expanded={!mapOpen}
+            >
+              {mapOpen ? "Show advisories" : "View map"}
+            </button>
+          </div>
         </div>
         <p className="panel-sub">
           {metric === "anomaly" ? "Surface temperature anomaly" : "Cyclone Heat Potential"} · {hazard?.month_label ?? "—"}
@@ -98,6 +109,7 @@ export default function HazardView({
                 onClick={() => {
                   setExpanded(isOpen ? null : a.id);
                   onSelect(selectedId === a.id ? null : a);
+                  if (!isOpen) setMapOpen(true);
                 }}
                 aria-expanded={isOpen}
               >
@@ -134,8 +146,8 @@ export default function HazardView({
 
         {!sorted.length && !loading && (
           <li className="bulletin-empty">
-            No region exceeds the {active?.thresholds?.moderate ?? (metric === "anomaly" ? 1 : 50)} {metric === "anomaly" ? "°C" : "kJ/cm²"}
-            advisory threshold for this period.
+            No region exceeds the {active?.thresholds?.moderate ?? (metric === "anomaly" ? 1 : 50)}{" "}
+            {metric === "anomaly" ? "°C" : "kJ/cm²"} advisory threshold for this period.
           </li>
         )}
       </ol>

@@ -80,6 +80,7 @@ export default function App() {
   const [forecastLead, setForecastLead] = useState(1);
   const [forecast, setForecast] = useState(null);
   const [searchTarget, setSearchTarget] = useState(null);
+  const [mobileHint, setMobileHint] = useState(true);
 
   const [booting, setBooting] = useState(true);
   const [fetching, setFetching] = useState(false); // shown only if slow (>300ms)
@@ -334,7 +335,7 @@ export default function App() {
   };
 
   return (
-    <div className="app">
+    <div className={`app view-${view}`}>
       {ready && view !== "about" && (
         <Scene
           resetSignal={resetSignal}
@@ -376,7 +377,11 @@ export default function App() {
         onVariable={handleVariable}
         mode={mode}
         onMode={setMode}
-        alertCount={hazard?.advisories?.length ?? 0}
+        alertCount={
+          (hazardMetric === "anomaly"
+            ? hazard?.anomaly_field?.advisories
+            : hazard?.advisories)?.length ?? 0
+        }
         bounds={meta?.bounds}
         searchTarget={searchTarget}
         onClearCoordinate={() => setSearchTarget(null)}
@@ -512,6 +517,13 @@ export default function App() {
           range={range}
           units={field.units}
         />
+      )}
+
+      {ready && view === "explorer" && mode === "forecaster" && mobileHint && (
+        <div className="mobile-scene-hint" role="status">
+          <span>Drag to rotate · pinch to zoom · tools are below</span>
+          <button onClick={() => setMobileHint(false)} aria-label="Dismiss mobile controls hint">×</button>
+        </div>
       )}
 
       {view === "hazard" && meta && (

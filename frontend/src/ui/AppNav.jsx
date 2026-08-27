@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
 const SECTIONS = [
-  { id: "explorer", label: "Explorer", hint: "Interactive 3D ocean state" },
-  { id: "hazard", label: "Hazard Advisory", hint: "Derived cyclone-risk bulletin" },
-  { id: "about", label: "About / Data Sources", hint: "Provenance and glossary" },
+  { id: "explorer", label: "Explorer", mobileLabel: "Explore", hint: "Interactive 3D ocean state" },
+  { id: "hazard", label: "Hazard Advisory", mobileLabel: "Hazards", hint: "Derived cyclone-risk bulletin" },
+  { id: "about", label: "About / Data Sources", mobileLabel: "About", hint: "Provenance and glossary" },
 ];
 
 const SUGGESTED_LOCATIONS = [
@@ -151,7 +151,8 @@ export default function AppNav({
             title={s.hint}
             aria-current={view === s.id ? "page" : undefined}
           >
-            {s.label}
+            <span className="nav-label-full">{s.label}</span>
+            <span className="nav-label-mobile">{s.mobileLabel}</span>
             {s.id === "hazard" && alertCount > 0 && (
               <span className="nav-badge" title={`${alertCount} active advisories`}>
                 {alertCount}
