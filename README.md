@@ -1,165 +1,183 @@
-# OceanScope — Prototype 0.4
+# OceanScope
 
-3D ocean data visualization for SIH26067 (INCOIS). A colored, data-driven
-terrain surface over the **India EEZ region** (5–25°N, 65–97°E), with real
-coastlines, real Argo float markers, and depth / time / variable controls.
+OceanScope is a browser-based 3D ocean intelligence prototype for SIH26067
+(INCOIS). It combines depth-resolved model fields, real Argo observations,
+animated currents, scientific 3D layers, and clearly labelled hazard-support
+indicators for the India EEZ study region (5–25°N, 65–97°E).
 
-**Everything rendered is real, sourced data.** There is no procedural
-generation, no Perlin/simplex noise, and no synthetic ocean data anywhere in
-the active app.
+## What works
 
-## Data sources — all real, none require an account
+- Temperature and salinity terrain across 5, 50, 100, 200, and 500 m.
+- GPU ray-marched volume rendering for depth-resolved variables.
+- Marching-tetrahedra isosurface extraction.
+- Real current-speed fields and animated U/V direction glyphs.
+- Real chlorophyll-a with a logarithmic colour scale by default.
+- Time playback, depth transitions, vertical exaggeration, layer opacity,
+  palette presets, linear/log scaling, and manual colour ranges.
+- Real Argo markers and depth profiles, including model-versus-float comparison.
+- Coordinate search with camera focus and removable map marker.
+- Derived cyclone heat-potential and warm-anomaly hazard views.
+- A baseline 1–3 month SST trend projection, visibly marked as predicted and
+  non-operational.
+- Forecaster and simplified Explore modes, Hazard Advisory, and data-source
+  documentation in one responsive interface.
 
-| Layer | Source | Notes |
+OceanScope does not generate random ocean fields. Temperature, salinity,
+currents, chlorophyll, coastlines, and Argo observations come from the real
+sources below. Forecast and hazard layers are derived from those fields and
+are explicitly labelled as non-operational decision-support outputs.
+
+## Real data sources
+
+| Layer | Source | Coverage used by the default build |
 |---|---|---|
-| **Ocean temperature + salinity** | [INCOIS ERDDAP](https://erddap.incois.gov.in/erddap/griddap/incois_argo_mnt_VAM.html) — `incois_argo_mnt_VAM` | INCOIS's own gridded Argo product ("Variational Analysis Methodology"). Real monthly **time series** (not a climatology). 12 months (Aug 2025 – Jul 2026), 5 depth levels (5/50/100/200/500 m), 1° grid → 21×33 over this region. |
-| **Argo float profiles** | [INCOIS ERDDAP](https://erddap.incois.gov.in/erddap/tabledap/Indian_ARGO_Floats.html) — `Indian_ARGO_Floats` | The archive behind INCOIS's Argo viewer. 10 real floats, each with a genuine profile cycle (~62 levels to ~988 m) carrying temperature and salinity. |
-| **Coastlines / land** | [Natural Earth 1:10m](https://www.naturalearthdata.com/) physical land + minor islands | Public domain. Clipped to the region; features below ~10 km² dropped (see *Known trade-offs*). |
+| Temperature and salinity | [INCOIS ERDDAP `incois_argo_mnt_VAM`](https://erddap.incois.gov.in/erddap/griddap/incois_argo_mnt_VAM.html) | Monthly gridded Argo analysis, Apr 2018–Mar 2019, five depths |
+| Current U/V and speed | INCOIS ERDDAP `incois_valueadded_products_datasets` | Monthly geostrophic currents; surface only |
+| Chlorophyll-a | INCOIS ERDDAP `incois_oceansat2_datasets` | Oceansat-2 OCM observations; surface only |
+| Float positions and profiles | [Argo data served by INCOIS](https://erddap.incois.gov.in/erddap/tabledap/Indian_ARGO_Floats.html) | Ten real floats with depth-resolved temperature/salinity profiles |
+| Coastlines and islands | [Natural Earth 1:10m](https://www.naturalearthdata.com/) | Public-domain geometry clipped to the study region |
 
-**No API keys or accounts are needed for any of the above.** The one script
-that does need credentials is `download_copernicus.py`, which is optional and
-not part of the default setup — its docstring lists the exact signup steps.
+The default download path needs no API key. Copernicus support is optional;
+`backend/data/download_copernicus.py` documents the free-account setup.
 
-## Setup
+The 2018–2019 window is intentional: it is the most recent shared period in
+which the selected INCOIS temperature, salinity, geostrophic-current, and
+Oceansat-2 chlorophyll products overlap. Moving the temperature window later
+can make older surface products unavailable; the app reports that state rather
+than inventing replacement values.
 
-Requires Python 3.10+ and Node 18+.
+## Run locally
+
+Requirements: Python 3.10+ and Node.js 18+.
+
+### 1. Backend
 
 ```bash
-# 1. Backend
 cd backend
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-python data/download_incois.py       # ocean grid  -> data/indian_ocean.nc     (~5 s)
-python data/fetch_argo.py            # float profiles -> data/argo_profiles.json
-python data/prepare_geography.py     # coastlines  -> frontend/public/land.json
+python data/download_incois.py
+python data/download_currents.py
+python data/download_chlorophyll.py
+python data/fetch_argo.py
+python data/prepare_geography.py
 
 uvicorn app.main:app --reload --port 8000
 ```
 
+### 2. Frontend
+
+In a second terminal:
+
 ```bash
-# 2. Frontend (second terminal)
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-Open **http://localhost:5180**.
+Open **http://localhost:5180**. The Vite port is intentionally pinned; startup
+fails instead of silently switching ports when 5180 is occupied. API docs are
+available at **http://localhost:8000/docs**.
 
-`region.py` is the single source of truth for the bounding box and depth
-levels — the ocean grid and the coastline geometry both import it, so they can
-never drift out of alignment.
+To stop either development server, focus its terminal and press `Ctrl+C`.
 
-## Deployment
+## Vercel deployment
 
-Point Vercel at this repo and deploy — **no backend, no environment
-variables, no dashboard configuration required.** Build settings live in
-`vercel.json`.
-
-This works because the backend serves a *fixed* NetCDF snapshot, so every
-endpoint is deterministic. `backend/data/export_static.py` pre-renders the
-entire API to `frontend/public/api-static/` (578 KB for 120 slices + floats +
-meta), which is committed and served as plain static files.
-
-| Mode | When | Data comes from |
-|---|---|---|
-| **Live** | `npm run dev`, or any build with `VITE_API_BASE` set | The FastAPI backend |
-| **Static** | A production build with no `VITE_API_BASE` | `public/api-static/` |
-
-Set `VITE_API_BASE` only if you *want* a live backend (e.g. to serve data that
-changes). Otherwise leave it unset and the deploy is entirely self-contained.
-
-**Re-run the exporter after changing the dataset or any response shape:**
+The production frontend can run without a Python server. The fixed API snapshot
+under `frontend/public/api-static/` is served from Vercel's CDN, while
+`vercel.json` contains the install, build, output, SPA rewrite, and cache rules.
 
 ```bash
+# Refresh the committed snapshot after changing source data or API responses
 backend/venv/bin/python backend/data/export_static.py
+
+# Verify the production frontend
+cd frontend
+npm ci
+npm run build
 ```
 
-Stale slices are deleted on each run, so the snapshot can never drift out of
-sync with the API's current shape.
+Deploy the repository root to Vercel with no environment variables. In a
+production build with no `VITE_API_BASE`, the frontend reads `/api-static`.
 
-### The backend does not run on Vercel
+To use a separately deployed FastAPI service instead, set:
 
-This is deliberate, not an oversight. The API is a long-lived process that
-opens NetCDF files with xarray and holds the grids in memory. It does not fit
-Vercel's Python serverless model:
+```text
+VITE_API_BASE=https://your-api.example.com
+```
 
-- `xarray` + `netCDF4` + `numpy` + `pandas` are well over the serverless
-  bundle limit once unzipped.
-- The NetCDF files are build artifacts (gitignored, ~34 MB) — they are not in
-  the repo and would have to be fetched on every cold start.
-- Each invocation would re-open and re-read the dataset.
-
-Deploy it to any container host instead (Render, Fly.io, Railway, a VM):
+and configure the backend CORS allow-list:
 
 ```bash
-pip install -r backend/requirements.txt
-python backend/data/download_incois.py        # fetch the NetCDF first
-python backend/data/fetch_argo.py
 export ALLOWED_ORIGINS="https://your-app.vercel.app"
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
+uvicorn app.main:app --host 0.0.0.0 --port "$PORT"
 ```
 
-`ALLOWED_ORIGINS` is a comma-separated list added to the CORS allow-list.
-Local dev origins are always permitted, so you only need it in production.
-
-### Data is not in the repo
-
-A fresh clone has no NetCDF files. Run the scripts in `backend/data/` (see
-[Setup](#setup)) before starting the API, or every endpoint will 503 with a
-message naming the script to run. The one exception is
-`frontend/public/land.json`, which **is** committed — the deployed frontend
-fetches it at runtime to draw the landmasses.
-
-## How the terrain is built
-
-For every lat/lon cell of the fetched grid, the value at the current
-variable/depth/timestep sets **both** that vertex's height and its color:
-
-```
-t      = (value - range.min) / (range.max - range.min)
-height = t * RELIEF
-color  = colormap(t)            // sRGB -> linear for Three.js
-```
-
-See [`Terrain.jsx`](frontend/src/scene/Terrain.jsx). The color scale defaults
-to the **currently loaded slice's** true min/max, so each month uses the whole
-gradient; the Colorbar panel can widen it to "this depth" or "all" when you
-want colors comparable across depth/time instead.
+The FastAPI/xarray service is not deployed as a Vercel serverless function.
+Use a container host such as Render, Fly.io, Railway, or a VM when live,
+changing data is required.
 
 ## API
 
-| Endpoint | Description |
+| Endpoint | Purpose |
 |---|---|
-| `GET /api/meta` | Variables (with availability), depth levels, timesteps, bounds, precomputed ranges, source label. |
-| `GET /api/field?variable=&depth=&timestep=` | One slice: `values` (row-major, `null` = land), `lat`, `lon`, `bounds`, `range` (this slice), `robust_*`, `empty`. ~21 KB. |
-| `GET /api/floats` | 10 real Argo floats with full depth profiles. |
+| `GET /api/meta` | Variables, availability, depths, times, bounds, ranges, and source metadata |
+| `GET /api/field?variable=&depth=&timestep=` | Browser-sized 2D field slice |
+| `GET /api/volume?variable=&timestep=` | Depth-resolved grid for ray marching |
+| `GET /api/currents?timestep=&stride=` | Sparse real U/V current vectors |
+| `GET /api/isosurface?variable=&timestep=&value=` | Marching-tetrahedra mesh |
+| `GET /api/forecast?lead=` | Baseline SST trend projection for lead 1–3 |
+| `GET /api/hazard?timestep=` | Derived heat-potential/anomaly fields and advisories |
+| `GET /api/floats` | Real Argo positions and full profiles |
+| `GET /api/health` | Backend health check |
 
-Interactive docs at http://localhost:8000/docs.
+Legacy `/api/slice` and `/api/sst` endpoints remain for the earlier prototype
+views but are not the primary application pipeline.
 
-## Known trade-offs
+## Architecture
 
-- **Grid resolution.** INCOIS publishes this product on a 1° grid, so the
-  region is 21×33 real samples. The renderer bilinearly upsamples ×4 for a
-  smooth mesh — display interpolation only, exactly what any contouring package
-  does. It creates no new data, and every number shown (colorbar, tooltips)
-  comes from the native values. The on-screen source label always states the
-  native grid size.
-- **Dropped micro-islands.** Natural Earth's minor-islands layer includes
-  sub-kilometre rocks. Extruded into 3D they degenerate into thin vertical
-  columns, so features under ~0.0008 deg² (~10 km²) are filtered out. Sri
-  Lanka, the Andaman & Nicobar chain and the larger Lakshadweep atolls are
-  retained; the smallest Lakshadweep islets are not.
-- **Current Speed** is deliberately greyed out with "Coming soon". INCOIS's
-  gridded Argo product carries no currents, and the prototype never invents
-  data for a variable it does not have.
-- **Legacy prototypes** from earlier sessions live in `frontend/src/legacy/`
-  (the 2D LAS-style map and the first Bay of Bengal scene). They are not
-  imported by the app; delete when you no longer want them.
+```text
+INCOIS / Argo / Natural Earth
+              ↓
+source adapters + xarray / NetCDF preprocessing
+              ↓
+FastAPI JSON fields, profiles, volumes, vectors and derived layers
+              ↓
+React + Three.js GPU rendering and interaction
+```
 
-## Not built yet
+Each additional gridded source is implemented as a small ingestion adapter.
+`backend/data/_shared_ingest.py` handles fetching, monthly alignment, grid
+interpolation, and attachment to the base NetCDF dataset. Add a new adapter,
+declare its variable metadata in `backend/app/ocean.py`, and regenerate the
+static snapshot to expose another sensor or product.
 
-True volumetric / ray-marched rendering · current vectors · isosurface
-extraction · vertical exaggeration · log-scale and custom palettes ·
-hazard / forecast layers.
+## Scientific and product boundaries
+
+- The current and chlorophyll products are surface-only; depth controls do not
+  pretend otherwise.
+- Ray marching visualizes the available five-level model volume. It improves
+  spatial interpretation but does not increase the source's vertical
+  resolution.
+- Isosurfaces use marching tetrahedra on the native depth/lat/lon grid.
+- The forecast is a transparent baseline trend extrapolation, not an
+  operational INCOIS forecast or cyclone prediction.
+- Hazard zones are derived visualization aids, not official warnings.
+- Current data has a long-tailed distribution; use manual colour limits when
+  comparing typical flow rather than extremes.
+- Natural Earth geometry is simplified for browser rendering while retaining
+  important island groups in India's EEZ.
+
+## Repository layout
+
+```text
+backend/app/          FastAPI endpoints and derived hazard logic
+backend/data/         Real-data download, adapter, geography, and export scripts
+frontend/src/scene/   Three.js terrain, volume, current, land, and isosurface layers
+frontend/src/ui/      Navigation, controls, profiles, colourbar, and panels
+frontend/src/views/   Explorer-adjacent Hazard and About views
+frontend/public/      Coastline geometry and static API snapshot
+vercel.json           Vercel build, routing, and cache configuration
+```
