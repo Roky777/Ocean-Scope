@@ -3,10 +3,10 @@ import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { lonToX, latToZ, RELIEF, sampleNormalised } from "../grid";
 
-const GLOW = new THREE.Color("#6fe3ff");
+const TYPE_COLORS = { argo: "#6fe3ff", glider: "#ffb547", ctd: "#c88cff", bgc: "#65ed8d" };
 
 /**
- * Real Argo floats as glowing markers sitting on the terrain surface.
+ * Observation platforms as precise coordinate nodes sitting on the surface.
  * Hover shows ID + depth; clicking opens the profile panel.
  */
 export default function FloatMarkers({ floats, field, filled, range, onSelect, selectedId, exaggeration = 1 }) {
@@ -16,6 +16,8 @@ export default function FloatMarkers({ floats, field, filled, range, onSelect, s
   const b = field.bounds;
 
   return floats.map((f) => {
+    const type = f.type ?? "argo";
+    const glow = new THREE.Color(TYPE_COLORS[type] ?? TYPE_COLORS.argo);
     const inside =
       f.lat >= b.lat_min && f.lat <= b.lat_max && f.lon >= b.lon_min && f.lon <= b.lon_max;
     if (!inside) return null;
@@ -27,10 +29,7 @@ export default function FloatMarkers({ floats, field, filled, range, onSelect, s
     // marker whose panel is open stays obvious while you hover others.
     const isSelected = f.id === selectedId;
     const isHovered = f.id === hovered && !isSelected;
-    const radius = isSelected ? 0.19 : isHovered ? 0.15 : 0.105;
-    const emissive = isSelected ? 3.4 : isHovered ? 2.3 : 1.25;
-    const haloScale = isSelected ? 0.36 : isHovered ? 0.29 : 0.2;
-    const haloOpacity = isSelected ? 0.34 : isHovered ? 0.24 : 0.11;
+    const radius = isSelected ? 0.15 : isHovered ? 0.13 : 0.1;
 
     return (
       <group key={f.id} position={[lonToX(f.lon, b), y, latToZ(f.lat, b)]}>
@@ -56,40 +55,45 @@ export default function FloatMarkers({ floats, field, filled, range, onSelect, s
           <meshBasicMaterial transparent opacity={0} depthWrite={false} />
         </mesh>
 
-        <mesh>
-          <sphereGeometry args={[radius, 20, 20]} />
+        <mesh position-y={0.055} rotation={type === "glider" ? [0, 0, Math.PI] : [0, 0, 0]}>
+          {type === "glider" ? <coneGeometry args={[radius * 1.25, radius * 2.2, 3]} />
+            : type === "ctd" ? <boxGeometry args={[radius * 1.7, radius * 1.7, radius * 1.7]} />
+              : type === "bgc" ? <dodecahedronGeometry args={[radius * 1.15, 0]} />
+                : <sphereGeometry args={[radius, 20, 20]} />}
           <meshStandardMaterial
-            color={isSelected ? "#ffffff" : GLOW}
-            emissive={GLOW}
-            emissiveIntensity={emissive}
+            color={isSelected ? "#ffffff" : glow}
+            emissive={glow}
+            emissiveIntensity={isSelected ? 1.4 : isHovered ? 0.9 : 0.45}
+            roughness={0.3}
+            metalness={0.2}
             toneMapped={false}
           />
         </mesh>
 
-        {/* Soft halo so markers stay findable against bright terrain. */}
-        <mesh>
-          <sphereGeometry args={[haloScale, 16, 16]} />
+        {/* A thin survey ring reads as a coordinate, not a decorative orb. */}
+        <mesh rotation-x={-Math.PI / 2} position-y={-0.025}>
+          <ringGeometry args={[isHovered || isSelected ? 0.23 : 0.18, isHovered || isSelected ? 0.255 : 0.198, 40]} />
           <meshBasicMaterial
-            color={GLOW}
+            color={glow}
             transparent
-            opacity={haloOpacity}
+            opacity={isSelected ? 0.95 : isHovered ? 0.8 : 0.5}
             depthWrite={false}
-            blending={THREE.AdditiveBlending}
+            side={THREE.DoubleSide}
           />
         </mesh>
 
         {/* Selected marker gets a ring so it reads even against bright terrain. */}
         {isSelected && (
           <mesh rotation-x={-Math.PI / 2}>
-            <ringGeometry args={[0.3, 0.36, 32]} />
-            <meshBasicMaterial color="#ffffff" transparent opacity={0.85} side={THREE.DoubleSide} />
+            <ringGeometry args={[0.29, 0.305, 40]} />
+            <meshBasicMaterial color="#ffffff" transparent opacity={0.9} side={THREE.DoubleSide} />
           </mesh>
         )}
 
         {/* Tether down to the surface. */}
-        <mesh position-y={-0.12}>
-          <cylinderGeometry args={[0.012, 0.012, 0.24, 6]} />
-          <meshBasicMaterial color={GLOW} transparent opacity={0.5} />
+        <mesh position-y={-0.105}>
+          <cylinderGeometry args={[0.008, 0.008, 0.21, 8]} />
+          <meshBasicMaterial color={glow} transparent opacity={0.72} />
         </mesh>
 
         {(isHovered || isSelected) && (
@@ -103,7 +107,7 @@ export default function FloatMarkers({ floats, field, filled, range, onSelect, s
           >
             <div className="marker-tip">
               <strong>{f.id}</strong>
-              <span>{f.max_depth} m profile</span>
+              <span>{type.toUpperCase()} · {f.max_depth} m profile</span>
             </div>
           </Html>
         )}

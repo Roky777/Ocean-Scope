@@ -6,7 +6,7 @@ import Terrain from "./Terrain";
 import Land from "./Land";
 import FloatMarkers from "./FloatMarkers";
 import HazardHighlight from "./HazardHighlight";
-import VolumeRenderer from "./VolumeRenderer";
+import VolumeRenderer, { VOLUME_DEPTH } from "./VolumeRenderer";
 import CurrentVectors from "./CurrentVectors";
 import Isosurface from "./Isosurface";
 import { fillGaps, upsample, WIDTH, HEIGHT, RELIEF, latToZ, lonToX } from "../grid";
@@ -171,6 +171,7 @@ export default function Scene({
   isosurface,
   verticalExaggeration = 1,
   layerOpacity = {},
+  volumeTransfer = {},
   searchTarget,
   onClearSearch,
 }) {
@@ -188,31 +189,32 @@ export default function Scene({
       shadows="basic"
       camera={{ position: CAMERA_HOME, fov: 40 }}
       onPointerMissed={() => onSelectFloat(null)}
-      dpr={[1, 2]}
-      gl={{ alpha: true, antialias: true }}
+      dpr={[1, 1.5]}
+      gl={{ alpha: true, antialias: true, powerPreference: "high-performance" }}
     >
       {/* No opaque background: the CSS deep-navy gradient behind the canvas
           provides atmosphere instead of a flat void. */}
-      <fog attach="fog" args={["#060d1a", 50, 104]} />
+      <fog attach="fog" args={["#111214", 50, 104]} />
 
-      <Stars radius={140} depth={60} count={900} factor={5} saturation={0} fade speed={0.4} />
+      <Stars radius={140} depth={60} count={320} factor={4} saturation={0} fade speed={0} />
 
-      <ambientLight intensity={0.38} />
-      <hemisphereLight args={["#8fb6ff", "#0a1220", 0.42]} />
+      <ambientLight intensity={0.44} />
+      <hemisphereLight args={["#c7d4df", "#111214", 0.5]} />
       <directionalLight
         position={[10, 18, 8]}
-        intensity={0.95}
+        intensity={1.08}
         castShadow
         shadow-mapSize={[1024, 1024]}
       />
       {/* Rim lights from behind and below so edges catch light and the
           terrain is not flatly lit from a single direction. */}
-      <directionalLight position={[-14, 7, -12]} intensity={0.5} color="#4f7dff" />
-      <directionalLight position={[6, -6, -14]} intensity={0.3} color="#00d5c8" />
-      <pointLight position={[0, 9, 18]} intensity={0.12} color="#9fe8ff" distance={70} />
+      <directionalLight position={[-14, 7, -12]} intensity={0.38} color="#7d93ac" />
+      <directionalLight position={[6, -6, -14]} intensity={0.24} color="#4bb8c5" />
+      <pointLight position={[0, 9, 18]} intensity={0.1} color="#c3eef2" distance={70} />
 
       <Suspense fallback={null}>
         {field && filled && layerOpacity.surface !== 0 && (
+          <group position-y={renderMode === "slice" && volume?.depths?.length ? -VOLUME_DEPTH * verticalExaggeration * (field.depth / volume.depths.at(-1)) : 0}>
           <Terrain
             key={`${field.shape[0]}x${field.shape[1]}`}
             field={field}
@@ -221,11 +223,12 @@ export default function Scene({
             colormap={colormap}
             scaleType={scaleType}
             opacity={renderMode === "volume" && volume ? Math.min(layerOpacity.surface ?? 1, 0.16) : layerOpacity.surface ?? 1}
-            exaggeration={verticalExaggeration}
+            exaggeration={renderMode === "slice" ? 0 : verticalExaggeration}
+            transfer={volumeTransfer}
             onReady={onTerrainReady}
             onHover={onHoverPoint}
             onPick={onPickPoint}
-          />
+          /></group>
         )}
         {field && renderMode === "volume" && volume && (
           <VolumeRenderer

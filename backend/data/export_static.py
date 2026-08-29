@@ -31,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "backend"))
 
-from app import ocean  # noqa: E402  (needs the path set up first)
+from app import data_access, ocean  # noqa: E402  (needs the path set up first)
 
 OUT = ROOT / "frontend" / "public" / "api-static"
 
@@ -59,7 +59,7 @@ def main() -> None:
     meta = ocean.get_meta()
 
     try:
-        total += write(OUT / "floats.json", ocean.get_floats())
+        total += write(OUT / "floats.json", data_access.instruments(type=None, variable=None))
     except Exception as exc:  # noqa: BLE001
         print(f"  floats unavailable ({exc}) - run fetch_argo.py first", file=sys.stderr)
 

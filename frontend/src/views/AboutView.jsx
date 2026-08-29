@@ -12,6 +12,18 @@ const SOURCES = [
     tag: "Real in-situ instrument data",
   },
   {
+    name: "Argo GDAC — INCOIS BGC-Argo Sprof",
+    what: "Quality-controlled temperature, salinity and chlorophyll depth profiles from three INCOIS-DAC biogeochemical floats inside the study region.",
+    url: "https://data-argo.ifremer.fr/dac/incois/",
+    tag: "Real BGC instrument data",
+  },
+  {
+    name: "OceanGliders GDAC — Humpback_504",
+    what: "A real Bay of Bengal glider deployment with depth-resolved temperature and salinity, served through IFREMER ERDDAP.",
+    url: "https://erddap.ifremer.fr/erddap/tabledap/OceanGlidersGDACTrajectories.html",
+    tag: "Real glider data",
+  },
+  {
     name: "INCOIS ERDDAP — incois_valueadded_products_datasets",
     what: "INCOIS's geostrophic current components (GEO_U/GEO_V), derived from their Argo analysis. Drives the Current Speed variable as sqrt(u²+v²).",
     url: "https://erddap.incois.gov.in/erddap/griddap/incois_valueadded_products_datasets.html",
@@ -63,27 +75,24 @@ export default function AboutView() {
         </header>
 
         <section className="page-section">
-          <h2 className="section-title">Data sources</h2>
+          <h2 className="section-title">Dataset links</h2>
           <p className="section-note">
             Every surface, marker and advisory in this application is computed
             from the real datasets below. There is no synthetic, procedural or
             placeholder ocean data anywhere in the app — where a variable has no
             source, it is greyed out rather than filled in.
           </p>
-          <ul className="source-list">
+          <div className="table-scroll"><table className="info-table">
+            <thead><tr><th>Dataset</th><th>Use in OceanScope</th><th>Classification</th><th>Link</th></tr></thead>
+            <tbody>
             {SOURCES.map((s) => (
-              <li key={s.name}>
-                <div className="source-top">
-                  <h3>{s.name}</h3>
-                  <span className="source-tag">{s.tag}</span>
-                </div>
-                <p>{s.what}</p>
-                <a href={s.url} target="_blank" rel="noreferrer noopener">
-                  {s.url}
-                </a>
-              </li>
+              <tr key={s.name}>
+                <th scope="row">{s.name}</th><td>{s.what}</td><td><span className="source-tag">{s.tag}</span></td>
+                <td><a href={s.url} target="_blank" rel="noreferrer noopener">Open dataset</a></td>
+              </tr>
             ))}
-          </ul>
+            </tbody>
+          </table></div>
         </section>
 
         <section className="page-section">
@@ -91,14 +100,12 @@ export default function AboutView() {
           <p className="section-note">
             Every term that appears in this interface, in plain language.
           </p>
-          <dl className="glossary">
+          <div className="table-scroll"><table className="info-table acronym-table">
+            <thead><tr><th>Acronym</th><th>Meaning</th></tr></thead><tbody>
             {ACRONYMS.map(([term, meaning]) => (
-              <div key={term}>
-                <dt>{term}</dt>
-                <dd>{meaning}</dd>
-              </div>
+              <tr key={term}><th scope="row">{term}</th><td>{meaning}</td></tr>
             ))}
-          </dl>
+            </tbody></table></div>
         </section>
 
         <section className="page-section">

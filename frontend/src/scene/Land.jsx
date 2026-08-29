@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { lonToX, latToShapeY, RELIEF } from "../grid";
 
 const LAND_TOP = RELIEF * 1.03; // just above the tallest ocean relief
-const SKIRT = 0.42;              // visible thickness of the landmass
+const SKIRT = 0.14;
 
 /**
  * Coastline landmasses as extruded geometry, shaded distinctly from the ocean
@@ -38,18 +38,24 @@ export default function Land({ land, bounds, exaggeration = 1 }) {
     // every coast.
     const g = new THREE.ExtrudeGeometry(shapes, {
       depth: SKIRT,
-      bevelEnabled: false,
-      curveSegments: 1,
+      bevelEnabled: true,
+      bevelSegments: 2,
+      bevelSize: 0.035,
+      bevelThickness: 0.035,
+      curveSegments: 3,
     });
     g.computeVertexNormals();
     return g;
   }, [land, bounds]);
 
-  if (!geometry) return null;
-
-  return (
-    <mesh geometry={geometry} rotation-x={-Math.PI / 2} position-y={LAND_TOP * exaggeration} castShadow>
-      <meshStandardMaterial color="#6b7280" roughness={0.95} metalness={0.0} flatShading />
+  const edges = useMemo(() => geometry ? new THREE.EdgesGeometry(geometry, 24) : null, [geometry]);
+  if (!geometry || !edges) return null;
+  return <group rotation-x={-Math.PI / 2} position-y={LAND_TOP * exaggeration}>
+    <mesh geometry={geometry} castShadow receiveShadow>
+      <meshStandardMaterial color="#30343b" roughness={0.72} metalness={0.12} />
     </mesh>
-  );
+    <lineSegments geometry={edges}>
+      <lineBasicMaterial color="#69717d" transparent opacity={0.28} />
+    </lineSegments>
+  </group>;
 }

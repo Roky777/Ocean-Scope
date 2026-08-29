@@ -22,6 +22,7 @@ export const usingStaticData = LIVE === null;
 const url = {
   meta: () => (LIVE ? `${LIVE}/api/meta` : `${STATIC_ROOT}/meta.json`),
   floats: () => (LIVE ? `${LIVE}/api/floats` : `${STATIC_ROOT}/floats.json`),
+  instruments: () => (LIVE ? `${LIVE}/api/instruments` : `${STATIC_ROOT}/floats.json`),
   hazard: (timestep) =>
     LIVE
       ? `${LIVE}/api/hazard?timestep=${timestep}`
@@ -66,6 +67,50 @@ async function getJSON(path) {
 
 export const fetchMeta = () => getJSON(url.meta());
 export const fetchFloats = () => getJSON(url.floats());
+export const fetchInstruments = async () => {
+  const data = await getJSON(url.instruments());
+  const instruments = data.instruments ?? data.floats ?? [];
+  return {
+    ...data,
+    instruments: instruments.map((item) => ({
+      ...item,
+      type: item.type ?? "argo",
+      variables: item.variables ?? ["temperature", "salinity"],
+    })),
+  };
+};
+
+export async function uploadInstruments(file, instrumentType, columnMapping = {}) {
+  if (!LIVE) throw new Error("Uploads require the live FastAPI service");
+  const query = new URLSearchParams({
+    instrument_type: instrumentType,
+    filename: file.name,
+    column_mapping: JSON.stringify(columnMapping),
+  });
+  const res = await fetch(`${LIVE}/api/import/instruments?${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Import failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function uploadDataset(file, activate = false) {
+  if (!LIVE) throw new Error("Dataset imports require the live FastAPI service");
+  const query = new URLSearchParams({ filename: file.name, activate: String(activate) });
+  const res = await fetch(`${LIVE}/api/import/datasets?${query}`, {
+    method: "POST", headers: { "Content-Type": "application/octet-stream" }, body: file,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Dataset import failed (${res.status})`);
+  }
+  return res.json();
+}
 
 const layerCache = new Map();
 const cachedLayer = (key, path) => {

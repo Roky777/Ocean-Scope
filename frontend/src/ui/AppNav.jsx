@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
 const SECTIONS = [
-  { id: "explorer", label: "Explorer", mobileLabel: "Explore", hint: "Interactive 3D ocean state" },
-  { id: "hazard", label: "Hazard Advisory", mobileLabel: "Hazards", hint: "Derived cyclone-risk bulletin" },
-  { id: "about", label: "About / Data Sources", mobileLabel: "About", hint: "Provenance and glossary" },
+  { id: "explorer", label: "Explorer", mobileLabel: "Explore", hint: "Explore ocean data in 3D" },
+  { id: "hazard", label: "Advisories", mobileLabel: "Alerts", hint: "View ocean hazard advisories" },
+  { id: "about", label: "Data & About", mobileLabel: "About", hint: "View data sources and project information" },
 ];
 
 const SUGGESTED_LOCATIONS = [
@@ -21,40 +21,18 @@ const SUGGESTED_LOCATIONS = [
 export default function AppNav({
   view,
   onView,
-  variables,
-  variable,
-  onVariable,
-  mode,
-  onMode,
   alertCount,
   bounds,
   onCoordinateSearch,
   searchTarget,
   onClearCoordinate,
+  onGuide,
 }) {
-  const [open, setOpen] = useState(false);
   const [coordinateOpen, setCoordinateOpen] = useState(false);
   const [latitudeText, setLatitudeText] = useState("");
   const [longitudeText, setLongitudeText] = useState("");
   const [coordinateError, setCoordinateError] = useState("");
-  const ref = useRef(null);
   const coordinateRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    const key = (e) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    document.addEventListener("keydown", key);
-    return () => {
-      document.removeEventListener("mousedown", close);
-      document.removeEventListener("keydown", key);
-    };
-  }, [open]);
 
   useEffect(() => {
     if (!coordinateOpen) return;
@@ -83,7 +61,6 @@ export default function AppNav({
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && view === "explorer") {
         e.preventDefault();
         setCoordinateOpen(true);
-        setOpen(false);
       }
     };
     document.addEventListener("keydown", shortcut);
@@ -132,14 +109,12 @@ export default function AppNav({
     onCoordinateSearch({ lat: place.lat, lon: place.lon });
   };
 
-  const current = variables?.find((v) => v.id === variable);
-
   return (
     <header className="appnav">
       <div className="appnav-brand">
         <span className="brand-mark" aria-hidden="true" />
-        <span className="brand-name">OceanScope</span>
-        <span className="brand-sub">India EEZ</span>
+        <span className="brand-name">3D Ocean Explorer</span>
+        <span className="brand-sub">SIH Prototype · India EEZ</span>
       </div>
 
       <nav className="appnav-sections" aria-label="Sections">
@@ -163,13 +138,20 @@ export default function AppNav({
       </nav>
 
       <div className="appnav-right">
+        <button className="guide-help" onClick={onGuide} title="Open the getting-started guide" aria-label="Open interface guide">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M9.8 9a2.4 2.4 0 0 1 4.6 1c0 1.8-2.4 2-2.4 3.8" />
+            <path d="M12 17.2h.01" />
+          </svg>
+          <span>Guide</span>
+        </button>
         {view === "explorer" && (
           <div className="coordinate-search" ref={coordinateRef}>
             <button
               className={coordinateOpen ? "coordinate-trigger active" : "coordinate-trigger"}
               onClick={() => {
                 setCoordinateOpen((value) => !value);
-                setOpen(false);
               }}
               aria-expanded={coordinateOpen}
               aria-haspopup="dialog"
@@ -244,66 +226,6 @@ export default function AppNav({
           </div>
         )}
 
-        {/* Mode switch: the brief calls for an operational tool AND a public
-            outreach view, so this is a first-class control, not a setting.
-            It only governs the Explorer view, so it is hidden elsewhere
-            rather than sitting there inert. */}
-        {view === "explorer" && (
-        <div className="modeswitch" role="group" aria-label="Interface mode">
-          <button
-            className={mode === "forecaster" ? "modebtn active" : "modebtn"}
-            onClick={() => onMode("forecaster")}
-            title="Full operational controls"
-          >
-            Forecaster
-          </button>
-          <button
-            className={mode === "explore" ? "modebtn active" : "modebtn"}
-            onClick={() => onMode("explore")}
-            title="Simplified view for outreach and teaching"
-          >
-            Explore
-          </button>
-        </div>
-        )}
-
-        {view === "explorer" && variables && (
-          <div className="variable-select" ref={ref}>
-            <span className="field-label">Variable</span>
-            <button
-              className={open ? "select-button open" : "select-button"}
-              onClick={() => setOpen((o) => !o)}
-              aria-haspopup="listbox"
-              aria-expanded={open}
-            >
-              {current?.label ?? "—"}
-              <span className="chev" aria-hidden="true" />
-            </button>
-            {open && (
-              <ul className="dropdown" role="listbox">
-                {variables.map((v) => (
-                  <li key={v.id}>
-                    <button
-                      role="option"
-                      aria-selected={v.id === variable}
-                      disabled={!v.available}
-                      title={v.available ? undefined : v.note || "Coming soon"}
-                      className={v.id === variable ? "option active" : "option"}
-                      onClick={() => {
-                        if (!v.available) return;
-                        onVariable(v.id);
-                        setOpen(false);
-                      }}
-                    >
-                      <span>{v.label}</span>
-                      {!v.available && <span className="soon">Coming soon</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
       </div>
     </header>
   );

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Scene from "./scene/Scene";
 import AppNav from "./ui/AppNav";
 import Splash from "./ui/Splash";
-import ExploreCaption from "./ui/ExploreCaption";
 import HazardView from "./views/HazardView";
 import AboutView from "./views/AboutView";
 import SidePanel from "./ui/SidePanel";
@@ -12,11 +11,15 @@ import Toast from "./ui/Toast";
 import Loading from "./ui/Loading";
 import PointTooltip from "./ui/PointTooltip";
 import PointProfile from "./ui/PointProfile";
+import { WorkspaceTimeline } from "./ui/WorkspaceChrome";
+import WelcomeGuide from "./ui/WelcomeGuide";
 import { useClosable } from "./ui/useClosable";
 import {
   fetchMeta,
   fetchField,
-  fetchFloats,
+  fetchInstruments,
+  uploadInstruments,
+  uploadDataset,
   fetchLand,
   fetchHazard,
   fetchVolume,
@@ -29,12 +32,26 @@ import {
 import "./App.css";
 
 const PLAY_INTERVAL_MS = 1500; // spec: 1-2 s per timestep
+const FRIENDLY_VARIABLES = {
+  temperature: "Temperature",
+  salinity: "Saltiness",
+  current_speed: "Ocean currents",
+  chlorophyll: "Tiny ocean plants",
+};
+
+const friendlyVariable = (id, fallback) =>
+  FRIENDLY_VARIABLES[id] ?? fallback?.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function App() {
+  const [guideOpen, setGuideOpen] = useState(() => {
+    try { return window.localStorage.getItem("oceanscope-guide-seen") !== "yes"; }
+    catch { return true; }
+  });
   const [meta, setMeta] = useState(null);
   const [field, setField] = useState(null);
   const [land, setLand] = useState(null);
   const [floats, setFloats] = useState([]);
+  const [instrumentTypes, setInstrumentTypes] = useState(["argo", "glider", "ctd", "bgc"]);
 
   const [variable, setVariable] = useState("temperature");
   const [depth, setDepth] = useState(0);
@@ -42,7 +59,6 @@ export default function App() {
 
   // Application shell state.
   const [view, setView] = useState("explorer");
-  const [mode, setMode] = useState("forecaster");
   const [hazard, setHazard] = useState(null);
   const [hazardLoading, setHazardLoading] = useState(false);
   const [selectedAdvisory, setSelectedAdvisory] = useState(null);
@@ -76,11 +92,11 @@ export default function App() {
   const [isoValue, setIsoValue] = useState(28);
   const [verticalExaggeration, setVerticalExaggeration] = useState(1);
   const [layerOpacity, setLayerOpacity] = useState({ surface: 1, volume: 0.76, currents: 0.88, isosurface: 0.62 });
+  const [volumeTransfer, setVolumeTransfer] = useState({ density: 1, low: 0, high: 1, clipNear: 0, clipDeep: 1, quality: 96 });
   const [forecastEnabled, setForecastEnabled] = useState(false);
   const [forecastLead, setForecastLead] = useState(1);
   const [forecast, setForecast] = useState(null);
   const [searchTarget, setSearchTarget] = useState(null);
-  const [mobileHint, setMobileHint] = useState(true);
 
   const [booting, setBooting] = useState(true);
   const [fetching, setFetching] = useState(false); // shown only if slow (>300ms)
@@ -103,14 +119,14 @@ export default function App() {
       .then((l) => alive && setLand(l))
       .catch((e) => alive && pushToast(`Coastlines unavailable: ${e.message}`));
 
-    fetchFloats()
-      .then((d) => alive && setFloats(d.floats))
-      .catch((e) => alive && pushToast(`Argo floats unavailable: ${e.message}`));
+    fetchInstruments()
+      .then((d) => alive && setFloats(d.instruments))
+      .catch((e) => alive && pushToast(`Instrument observations unavailable: ${e.message}`));
 
     fetchMeta()
       .then((m) => {
         if (!alive) return;
-        setMeta(m);
+        setMeta({ ...m, variables: m.variables.map((item) => ({ ...item, label: friendlyVariable(item.id, item.label) })) });
         setVariable(m.default_variable);
         setDepth(m.depths[0]);
         setTimestep(m.default_timestep); // most recent available step
@@ -142,7 +158,7 @@ export default function App() {
           pushToast("No data available at this depth for this timestep");
           return; // keep the previous terrain rather than blanking the scene
         }
-        setField(d);
+        setField({ ...d, label: friendlyVariable(variable, d.label) });
       })
       .catch((e) => {
         if (!alive) return;
@@ -176,7 +192,7 @@ export default function App() {
   const volumeAvailable = Boolean(meta?.variables.find((v) => v.id === variable && !v.surface)?.available);
 
   useEffect(() => {
-    if (!meta || (!showIsosurface && renderMode !== "volume") || !volumeAvailable || forecastEnabled) return;
+    if (!meta || (!showIsosurface && !["volume", "slice"].includes(renderMode)) || !volumeAvailable || forecastEnabled) return;
     let alive = true;
     fetchVolume(variable, timestep)
       .then((data) => alive && setVolume(data))
@@ -313,11 +329,8 @@ export default function App() {
     return () => clearTimeout(t);
   }, [booting]);
 
-  useEffect(() => {
-    if (mode === "explore" && openTab === "colorbar") setOpenTab(null);
-  }, [mode, openTab]);
-
   const handleSelectFloat = (f) => {
+    setOpenTab(null);
     setPickedPoint(null); // only one detail panel at a time
     setSelectedFloat(f);
   };
@@ -335,7 +348,7 @@ export default function App() {
   };
 
   return (
-    <div className={`app view-${view}`}>
+    <div id="ocean-workspace" className={`app simple-shell view-${view}`}>
       {ready && view !== "about" && (
         <Scene
           resetSignal={resetSignal}
@@ -344,7 +357,7 @@ export default function App() {
           colormap={sceneColormap}
           scaleType={sceneScaleType}
           land={land}
-          floats={view === "hazard" ? [] : floats}
+          floats={view === "hazard" ? [] : floats.filter((f) => instrumentTypes.includes(f.type ?? "argo"))}
           highlight={view === "hazard" ? selectedAdvisory : null}
           selectedId={selectedFloat?.id}
           onSelectFloat={handleSelectFloat}
@@ -357,6 +370,7 @@ export default function App() {
           isosurface={view === "explorer" && showIsosurface && !forecastEnabled ? isosurface : null}
           verticalExaggeration={verticalExaggeration}
           layerOpacity={layerOpacity}
+          volumeTransfer={volumeTransfer}
           searchTarget={searchTarget}
           onClearSearch={() => setSearchTarget(null)}
         />
@@ -372,11 +386,6 @@ export default function App() {
           setSelectedFloat(null);
           setPickedPoint(null);
         }}
-        variables={meta?.variables}
-        variable={variable}
-        onVariable={handleVariable}
-        mode={mode}
-        onMode={setMode}
         alertCount={
           (hazardMetric === "anomaly"
             ? hazard?.anomaly_field?.advisories
@@ -385,6 +394,7 @@ export default function App() {
         bounds={meta?.bounds}
         searchTarget={searchTarget}
         onClearCoordinate={() => setSearchTarget(null)}
+        onGuide={() => setGuideOpen(true)}
         onCoordinateSearch={({ lat, lon }) => {
           setView("explorer");
           setOpenTab(null);
@@ -396,7 +406,6 @@ export default function App() {
 
       {meta && view === "explorer" && (
         <SidePanel
-          mode={mode}
           open={openTab}
           onToggle={setOpenTab}
           variables={meta.variables}
@@ -441,6 +450,8 @@ export default function App() {
           onVerticalExaggeration={setVerticalExaggeration}
           layerOpacity={layerOpacity}
           onLayerOpacity={(name, value) => setLayerOpacity((current) => ({ ...current, [name]: value }))}
+          volumeTransfer={volumeTransfer}
+          onVolumeTransfer={(patch) => setVolumeTransfer((current) => ({ ...current, ...patch }))}
           forecastEnabled={forecastEnabled}
           onForecastEnabled={(enabled) => {
             setPlaying(false);
@@ -455,25 +466,42 @@ export default function App() {
           }}
           forecastLead={forecastLead}
           onForecastLead={setForecastLead}
+          instruments={floats}
+          instrumentTypes={instrumentTypes}
+          onInstrumentTypes={setInstrumentTypes}
+          onInstrumentUpload={async (file, type) => {
+            const result = await uploadInstruments(file, type);
+            setFloats((current) => [...current, ...result.instruments]);
+            pushToast(`Imported ${result.accepted} ${type.toUpperCase()} instrument${result.accepted === 1 ? "" : "s"}`);
+          }}
+          onDatasetUpload={async (file) => {
+            const result = await uploadDataset(file);
+            pushToast(`Validated ${result.filename}: ${result.variables.length} variables registered`);
+          }}
         />
       )}
 
-      {ready && view !== "about" && (
+      {ready && view === "explorer" && (
+        <div className="bottom-control-bar">
         <Colorbar
           label={sceneField.label}
           units={sceneField.units}
           colormap={sceneColormap}
           range={sceneRange}
           scaleType={sceneScaleType}
-          context={
-            view === "hazard"
-              ? `${sceneField.month_label} · advisory threshold ${sceneField?.thresholds?.moderate ?? 50} ${sceneField.units}`
-              : `${sceneField.month_label}${sceneField.predicted ? " · PREDICTED" : sceneField.surface ? " · surface" : ` · ${sceneField.depth} m`}${
-                  scaleMode === "slice" ? "" : ` · scale: ${scaleMode === "global" ? "all depths" : "this depth"}`
-                }`
-          }
+          context={`${sceneField.month_label}${sceneField.predicted ? " · PREDICTED" : sceneField.surface ? " · surface" : ` · ${sceneField.depth} m`}`}
         />
+        <WorkspaceTimeline
+          timesteps={meta.timesteps}
+          timestep={timestep}
+          playing={playing}
+          onPlay={() => setPlaying((value) => !value)}
+          onTimestep={(value) => { setPlaying(false); setTimestep(value); }}
+        />
+        </div>
       )}
+
+      {ready && view === "hazard" && <Colorbar label={sceneField.label} units={sceneField.units} colormap={sceneColormap} range={sceneRange} scaleType={sceneScaleType} context={sceneField.month_label} />}
 
       {ready && view === "explorer" && !pickedPoint && !selectedFloat && (
         <PointTooltip point={hoverPoint} label={field.label} units={field.units} />
@@ -508,24 +536,6 @@ export default function App() {
         />
       )}
 
-      {ready && view === "explorer" && mode === "explore" && (
-        <ExploreCaption
-          variable={variable}
-          label={field.label}
-          depth={field.depth}
-          monthLabel={field.month_label}
-          range={range}
-          units={field.units}
-        />
-      )}
-
-      {ready && view === "explorer" && mode === "forecaster" && mobileHint && (
-        <div className="mobile-scene-hint" role="status">
-          <span>Drag to rotate · pinch to zoom · tools are below</span>
-          <button onClick={() => setMobileHint(false)} aria-label="Dismiss mobile controls hint">×</button>
-        </div>
-      )}
-
       {view === "hazard" && meta && (
         <HazardView
           hazard={hazard}
@@ -558,7 +568,7 @@ export default function App() {
         onClick={() => setResetSignal((n) => n + 1)}
         title="Return the camera to the default 3/4 view"
       >
-        <span aria-hidden="true">⌂</span> Reset view
+        <span aria-hidden="true">⌂</span> Reset
       </button>
       )}
 
@@ -569,6 +579,7 @@ export default function App() {
       )}
 
       <Toast messages={toasts} onDismiss={dismissToast} />
+      <WelcomeGuide open={guideOpen && ready} onClose={() => setGuideOpen(false)} />
     </div>
   );
 }

@@ -62,6 +62,7 @@ python data/download_incois.py
 python data/download_currents.py
 python data/download_chlorophyll.py
 python data/fetch_argo.py
+python data/fetch_instruments.py
 python data/prepare_geography.py
 
 uvicorn app.main:app --reload --port 8000
@@ -131,6 +132,13 @@ changing data is required.
 | `GET /api/forecast?lead=` | Baseline SST trend projection for lead 1–3 |
 | `GET /api/hazard?timestep=` | Derived heat-potential/anomaly fields and advisories |
 | `GET /api/floats` | Real Argo positions and full profiles |
+| `GET /api/instruments` | Unified Argo, Glider, CTD and BGC profiles with type/variable filters |
+| `GET /api/adapters` | Installed source-adapter manifest and supported formats |
+| `POST /api/import/instruments` | Validated CSV/ASCII profile upload with configurable column mapping |
+| `POST /api/import/datasets` | Validate and register a CF-style NetCDF dataset |
+| `POST /api/opendap/sources` | Configure an OPeNDAP dataset URL |
+| `GET /ogc/wms` | Basic WMS GetCapabilities/GetMap service |
+| `GET /ogc/wcs` | Basic WCS GetCapabilities/GetCoverage service |
 | `GET /api/health` | Backend health check |
 
 Legacy `/api/slice` and `/api/sst` endpoints remain for the earlier prototype
@@ -148,7 +156,9 @@ FastAPI JSON fields, profiles, volumes, vectors and derived layers
 React + Three.js GPU rendering and interaction
 ```
 
-Each additional gridded source is implemented as a small ingestion adapter.
+Each additional gridded or profile source is implemented as a registered
+ingestion adapter. The built-in adapters accept CF-style NetCDF and delimited
+CSV/TSV/ASCII profiles with automatic aliases or an explicit column mapping.
 `backend/data/_shared_ingest.py` handles fetching, monthly alignment, grid
 interpolation, and attachment to the base NetCDF dataset. Add a new adapter,
 declare its variable metadata in `backend/app/ocean.py`, and regenerate the

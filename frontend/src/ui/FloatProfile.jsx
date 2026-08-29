@@ -76,7 +76,7 @@ export default function FloatProfile({
 
   // Argo profiles carry both temperature and salinity; plot whichever variable
   // is active so the two lines are always the same quantity.
-  const key = variable === "salinity" ? "salinity" : "temperature";
+  const key = ["temperature", "salinity", "chlorophyll"].includes(variable) ? variable : "temperature";
   const pts = f.profile.filter((p) => p[key] != null);
 
   if (!pts.length) {
@@ -192,7 +192,7 @@ export default function FloatProfile({
       <ul className="legend-list">
         <li>
           <span className="swatch-line argo" aria-hidden="true" />
-          Argo float {f.id} · {pts.length} levels
+          {(f.type ?? "argo").toUpperCase()} {f.id} · {pts.length} levels
         </li>
         {compare && shown.length > 0 && (
           <li>
@@ -218,7 +218,7 @@ export default function FloatProfile({
         </div>
       </dl>
 
-      <p className="float-note">Real Argo profile · IFREMER ERDDAP</p>
+      <p className="float-note">{(f.type ?? "argo").toUpperCase()} in-situ profile{(f.type ?? "argo") === "argo" ? " · IFREMER ERDDAP" : ""}</p>
     </aside>
   );
 }

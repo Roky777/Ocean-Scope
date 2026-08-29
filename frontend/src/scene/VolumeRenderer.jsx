@@ -24,6 +24,12 @@ const fragmentShader = `
   uniform sampler3D uVolume;
   uniform sampler2D uPalette;
   uniform float uOpacity;
+  uniform float uDensity;
+  uniform float uLow;
+  uniform float uHigh;
+  uniform float uClipNear;
+  uniform float uClipDeep;
+  uniform float uSteps;
   out vec4 fragColor;
 
   vec2 hitBox(vec3 origin, vec3 direction) {
@@ -42,16 +48,18 @@ const fragmentShader = `
     bounds.x = max(bounds.x, 0.0);
     vec3 p = vOrigin + bounds.x * ray;
     float span = bounds.y - bounds.x;
-    float stepSize = span / 96.0;
+    float stepSize = span / uSteps;
     vec4 accum = vec4(0.0);
-    for (int i = 0; i < 96; i++) {
+    for (int i = 0; i < 160; i++) {
+      if (float(i) >= uSteps) break;
       vec3 uvw = vec3(p.x + 0.5, 0.5 - p.z, 0.5 - p.y);
       float packed = texture(uVolume, uvw).r;
-      if (packed > 0.002) {
+      if (packed > 0.002 && uvw.z >= uClipNear && uvw.z <= uClipDeep) {
         float value = clamp((packed * 255.0 - 1.0) / 254.0, 0.0, 1.0);
         vec3 colour = texture(uPalette, vec2(value, 0.5)).rgb;
-        float structure = smoothstep(0.08, 0.88, value);
-        float alpha = (0.018 + structure * 0.032) * uOpacity;
+        float window = smoothstep(uLow - 0.025, uLow + 0.025, value) * (1.0 - smoothstep(uHigh - 0.025, uHigh + 0.025, value));
+        float structure = smoothstep(uLow, max(uLow + 0.02, uHigh), value);
+        float alpha = (0.012 + structure * 0.04) * uOpacity * uDensity * window;
         accum.rgb += (1.0 - accum.a) * alpha * colour;
         accum.a += (1.0 - accum.a) * alpha;
         if (accum.a > 0.94) break;
@@ -63,7 +71,7 @@ const fragmentShader = `
   }
 `;
 
-export default function VolumeRenderer({ volume, range, colormap, scaleType, opacity = 0.75, exaggeration = 1 }) {
+export default function VolumeRenderer({ volume, range, colormap, scaleType, opacity = 0.75, exaggeration = 1, transfer = {} }) {
   const resources = useMemo(() => {
     if (!volume) return null;
     const [nz, ny, nx] = volume.shape;
@@ -103,7 +111,13 @@ export default function VolumeRenderer({ volume, range, colormap, scaleType, opa
       uniforms: {
         uVolume: { value: texture },
         uPalette: { value: palette },
-        uOpacity: { value: opacity },
+        uOpacity: { value: 0.75 },
+        uDensity: { value: 1 },
+        uLow: { value: 0 },
+        uHigh: { value: 1 },
+        uClipNear: { value: 0 },
+        uClipDeep: { value: 1 },
+        uSteps: { value: 96 },
       },
       side: THREE.BackSide,
       transparent: true,
@@ -113,8 +127,16 @@ export default function VolumeRenderer({ volume, range, colormap, scaleType, opa
   }, [volume, range.min, range.max, colormap, scaleType]);
 
   useEffect(() => {
-    if (resources) resources.material.uniforms.uOpacity.value = opacity;
-  }, [resources, opacity]);
+    if (!resources) return;
+    const uniforms = resources.material.uniforms;
+    uniforms.uOpacity.value = opacity;
+    uniforms.uDensity.value = transfer.density ?? 1;
+    uniforms.uLow.value = transfer.low ?? 0;
+    uniforms.uHigh.value = transfer.high ?? 1;
+    uniforms.uClipNear.value = transfer.clipNear ?? 0;
+    uniforms.uClipDeep.value = transfer.clipDeep ?? 1;
+    uniforms.uSteps.value = transfer.quality ?? 96;
+  }, [resources, opacity, transfer]);
   useEffect(() => () => {
     resources?.texture.dispose();
     resources?.palette.dispose();

@@ -89,6 +89,9 @@ export default function Terrain({
   const progress = useRef(1);
   const firstRender = useRef(true);
   const clock = useRef(0);
+  const rippleAccumulator = useRef(0);
+  const normalFrame = useRef(0);
+  const lastHoverReport = useRef(0);
 
   useEffect(() => {
     if (settled.current.length !== rows * cols) {
@@ -114,7 +117,14 @@ export default function Terrain({
   }, [opacity]);
 
   useFrame((_, delta) => {
-    clock.current += delta * RIPPLE_SPEED;
+    const transitioning = progress.current < 1;
+    rippleAccumulator.current += delta;
+    // The ambient ripple does not need to update at display refresh rate.
+    // Capping this tiny decorative motion at 24 Hz removes most idle CPU work.
+    if (!transitioning && rippleAccumulator.current < 1 / 24) return;
+    const simulationDelta = rippleAccumulator.current;
+    rippleAccumulator.current = 0;
+    clock.current += simulationDelta * RIPPLE_SPEED;
 
     const pos = geometry.attributes.position;
     const col = geometry.attributes.color;
@@ -152,7 +162,12 @@ export default function Terrain({
       }
     }
     pos.needsUpdate = true;
-    geometry.computeVertexNormals();
+    // Normal generation is substantially more expensive than moving vertices.
+    // Refresh it periodically and at the end of a data transition.
+    normalFrame.current += 1;
+    if (normalFrame.current % 4 === 0 || (transitioning && progress.current >= 1)) {
+      geometry.computeVertexNormals();
+    }
   });
 
   // --- point inspection ---------------------------------------------------
@@ -170,6 +185,9 @@ export default function Terrain({
       receiveShadow
       onPointerMove={(e) => {
         e.stopPropagation();
+        const now = performance.now();
+        if (now - lastHoverReport.current < 48) return;
+        lastHoverReport.current = now;
         report(e, onHover);
       }}
       onPointerOut={() => onHover?.(null)}
@@ -189,10 +207,10 @@ export default function Terrain({
         vertexColors
         transparent
         opacity={0}
-        roughness={0.52}
+        roughness={0.38}
         metalness={0.0}
-        clearcoat={0.45}
-        clearcoatRoughness={0.4}
+        clearcoat={0.7}
+        clearcoatRoughness={0.28}
         side={THREE.DoubleSide}
         wireframe={Boolean(field.predicted)}
       />

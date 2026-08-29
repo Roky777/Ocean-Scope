@@ -21,6 +21,8 @@ import numpy as np
 import xarray as xr
 from fastapi import APIRouter, HTTPException, Query
 
+from .catalog import DEFAULTS, variable_catalog
+
 DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_PATH = DATA_DIR / "indian_ocean.nc"
 PROFILES_PATH = DATA_DIR / "argo_profiles.json"
@@ -101,6 +103,10 @@ def load() -> None:
 
     if DATA_PATH.exists():
         _ds = xr.open_dataset(DATA_PATH)
+        # CF attributes are the source of truth. Defaults only supply friendly
+        # presentation metadata for known ocean variables.
+        VARIABLES.clear()
+        VARIABLES.update(variable_catalog(_ds))
         for name in VARIABLES:
             if name not in _ds:
                 continue
@@ -181,7 +187,7 @@ def get_meta():
             {**spec, "available": spec["id"] in ds}
             for spec in VARIABLES.values()
         ],
-        "default_variable": "temperature",
+        "default_variable": "temperature" if "temperature" in VARIABLES else next(iter(VARIABLES)),
         "depths": depths,
         "timesteps": [
             {"index": i, **_timestep_label(t)}
