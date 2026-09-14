@@ -10,9 +10,12 @@ import FloatProfile from "./ui/FloatProfile";
 import Toast from "./ui/Toast";
 import Loading from "./ui/Loading";
 import PointTooltip from "./ui/PointTooltip";
-import PointProfile from "./ui/PointProfile";
-import { WorkspaceTimeline } from "./ui/WorkspaceChrome";
+import EvidencePanel from "./ui/EvidencePanel";
+import { WorkspaceDepth, WorkspaceTimeline } from "./ui/WorkspaceChrome";
 import WelcomeGuide from "./ui/WelcomeGuide";
+import ModePanel from "./ui/ModePanel";
+import ContextPlaceholder from "./ui/ContextPlaceholder";
+import SceneToolbar from "./ui/SceneToolbar";
 import { useClosable } from "./ui/useClosable";
 import {
   fetchMeta,
@@ -31,22 +34,19 @@ import {
 } from "./api";
 import "./App.css";
 
-const PLAY_INTERVAL_MS = 1500; // spec: 1-2 s per timestep
 const FRIENDLY_VARIABLES = {
-  temperature: "Temperature",
-  salinity: "Saltiness",
+  temperature: "Ocean temperature",
+  salinity: "Salinity",
   current_speed: "Ocean currents",
-  chlorophyll: "Tiny ocean plants",
+  chlorophyll: "Microscopic ocean plants",
 };
 
 const friendlyVariable = (id, fallback) =>
   FRIENDLY_VARIABLES[id] ?? fallback?.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 
 export default function App() {
-  const [guideOpen, setGuideOpen] = useState(() => {
-    try { return window.localStorage.getItem("oceanscope-guide-seen") !== "yes"; }
-    catch { return true; }
-  });
+  const neutralRelief = import.meta.env.DEV && new URLSearchParams(window.location.search).has("neutralRelief");
+  const [guideOpen, setGuideOpen] = useState(false);
   const [meta, setMeta] = useState(null);
   const [field, setField] = useState(null);
   const [land, setLand] = useState(null);
@@ -63,12 +63,17 @@ export default function App() {
   const [hazardLoading, setHazardLoading] = useState(false);
   const [selectedAdvisory, setSelectedAdvisory] = useState(null);
   const [hazardMetric, setHazardMetric] = useState("tchp");
-  const [splash, setSplash] = useState(true);
+  const [splash, setSplash] = useState(false);
+  const [scientificOpen, setScientificOpen] = useState(false);
+  const [experienceMode, setExperienceMode] = useState("explore");
+  const [sceneTool, setSceneTool] = useState("3d");
 
-  const [openTab, setOpenTab] = useState(null); // collapsed on load, per spec
+  const [openTab, setOpenTab] = useState("variable");
   const [selectedFloat, setSelectedFloat] = useState(null);
   const [hoverPoint, setHoverPoint] = useState(null);
   const [pickedPoint, setPickedPoint] = useState(null);
+  const [evidenceCandidates, setEvidenceCandidates] = useState([]);
+  const [evidenceSelection, setEvidenceSelection] = useState(null);
 
   // Detail panels linger for one animation frame-set so they can slide out.
   const [shownFloat, floatClosing] = useClosable(selectedFloat);
@@ -83,16 +88,19 @@ export default function App() {
   const [paletteOverride, setPaletteOverride] = useState(null);
   const [manualRange, setManualRange] = useState(null);
   const [playing, setPlaying] = useState(false);
-  const [renderMode, setRenderMode] = useState("surface");
+  const [playIntervalMs, setPlayIntervalMs] = useState(1500);
+  const [renderMode, setRenderMode] = useState("volume");
   const [volume, setVolume] = useState(null);
   const [currents, setCurrents] = useState(null);
   const [isosurface, setIsosurface] = useState(null);
   const [showCurrents, setShowCurrents] = useState(false);
   const [showIsosurface, setShowIsosurface] = useState(false);
   const [isoValue, setIsoValue] = useState(28);
-  const [verticalExaggeration, setVerticalExaggeration] = useState(1);
+  const [verticalExaggeration, setVerticalExaggeration] = useState(5);
+  const [waveMotion, setWaveMotion] = useState(true);
+  const [showScientificMesh, setShowScientificMesh] = useState(false);
   const [layerOpacity, setLayerOpacity] = useState({ surface: 1, volume: 0.76, currents: 0.88, isosurface: 0.62 });
-  const [volumeTransfer, setVolumeTransfer] = useState({ density: 1, low: 0, high: 1, clipNear: 0, clipDeep: 1, quality: 96 });
+  const [volumeTransfer, setVolumeTransfer] = useState({ density: 1, low: 0, high: 1, clipNear: 0, clipDeep: 1, quality: 64 });
   const [forecastEnabled, setForecastEnabled] = useState(false);
   const [forecastLead, setForecastLead] = useState(1);
   const [forecast, setForecast] = useState(null);
@@ -241,9 +249,9 @@ export default function App() {
     if (!playing || !meta) return;
     const id = setInterval(() => {
       setTimestep((t) => (t + 1) % meta.timesteps.length);
-    }, PLAY_INTERVAL_MS);
+    }, playIntervalMs);
     return () => clearInterval(id);
-  }, [playing, meta]);
+  }, [playing, meta, playIntervalMs]);
 
   // --- derived -----------------------------------------------------------
   const activeVar = meta?.variables.find((v) => v.id === variable);
@@ -285,6 +293,9 @@ export default function App() {
   const handleVariable = (id) => {
     setVariable(id);
     setSelectedFloat(null);
+    setPickedPoint(null);
+    setEvidenceCandidates([]);
+    setEvidenceSelection(null);
     setScaleTypeOverride(null);
     setPaletteOverride(null);
     setManualRange(null);
@@ -330,8 +341,18 @@ export default function App() {
   }, [booting]);
 
   const handleSelectFloat = (f) => {
+    if (!f) {
+      setSelectedFloat(null);
+      return;
+    }
+    if (pickedPoint && f && evidenceCandidates.some((candidate) => candidate.id === f.id)) {
+      pushToast("Use Compare in the evidence panel to collocate this observation");
+      return;
+    }
     setOpenTab(null);
     setPickedPoint(null); // only one detail panel at a time
+    setEvidenceCandidates([]);
+    setEvidenceSelection(null);
     setSelectedFloat(f);
   };
 
@@ -339,16 +360,59 @@ export default function App() {
     // If a dock panel is open, the first click on the scene only dismisses it.
     // Otherwise dismissing a panel would also drop a point-inspection panel in
     // its place, which feels like the app fighting you.
-    if (openTab) {
+    if (openTab && scientificOpen && window.innerWidth <= 1100) {
       setOpenTab(null);
-      return;
     }
     setSelectedFloat(null);
-    setPickedPoint(p);
+    setPlaying(false);
+    setEvidenceCandidates([]);
+    setEvidenceSelection(null);
+    setPickedPoint({ ...p, depth });
+  };
+
+  const handleMode = (mode) => {
+    setExperienceMode(mode);
+    setView("explorer");
+    setPlaying(false);
+    if (mode === "explore") { setScientificOpen(false); setOpenTab("variable"); }
+    if (mode === "understand" || mode === "learn") { setScientificOpen(false); setOpenTab(null); }
+    if (mode === "verify") { setScientificOpen(false); setOpenTab("instruments"); }
+    if (mode === "analyze") { setScientificOpen(true); setOpenTab("layers"); }
+  };
+
+  const handleStory = (story) => {
+    setView("explorer");
+    setScientificOpen(false);
+    if (story === "depth") { if (variable !== "temperature") handleVariable("temperature"); setDepth(meta.depths[Math.min(2, meta.depths.length - 1)]); setOpenTab("depth"); setExperienceMode("explore"); }
+    if (story === "argo") { if (variable !== "temperature") handleVariable("temperature"); setInstrumentTypes(["argo"]); setOpenTab("instruments"); setExperienceMode("verify"); }
+    if (story === "model") { if (variable !== "temperature") handleVariable("temperature"); setInstrumentTypes(["argo"]); setOpenTab("instruments"); setExperienceMode("verify"); pushToast("Select ocean water, then choose Check with Real Measurements"); }
+  };
+
+  const handleSceneTool = (tool) => {
+    setSceneTool(tool);
+    if (tool === "2d") { setRenderMode("surface"); setShowIsosurface(false); }
+    if (tool === "3d") { setRenderMode("volume"); setShowIsosurface(false); }
+    if (tool === "slice") { setRenderMode("slice"); setShowIsosurface(false); }
+    if (tool === "isosurface") { setRenderMode("isosurface"); setShowIsosurface(true); }
+    if (tool === "measure") { setOpenTab(null); pushToast("Select a point in the ocean to measure its value and depth"); }
+  };
+
+  const moveToNearestValidPoint = () => {
+    if (!field || !pickedPoint) return;
+    let nearest = null;
+    for (let row = 0; row < field.values.length; row++) for (let column = 0; column < field.values[row].length; column++) {
+      const value = field.values[row][column];
+      if (value == null || !Number.isFinite(value)) continue;
+      const lat = field.lat[row];
+      const lon = field.lon[column];
+      const distance = Math.pow(lat - pickedPoint.lat, 2) + Math.pow((lon - pickedPoint.lon) * Math.cos(pickedPoint.lat * Math.PI / 180), 2);
+      if (!nearest || distance < nearest.distance) nearest = { lat, lon, value, distance };
+    }
+    if (nearest) setPickedPoint({ lat: nearest.lat, lon: nearest.lon, value: nearest.value, depth });
   };
 
   return (
-    <div id="ocean-workspace" className={`app simple-shell view-${view}`}>
+    <div id="ocean-workspace" className={`app simple-shell view-${view}${scientificOpen ? " scientific-mode" : ""}`}>
       {ready && view !== "about" && (
         <Scene
           resetSignal={resetSignal}
@@ -359,7 +423,7 @@ export default function App() {
           land={land}
           floats={view === "hazard" ? [] : floats.filter((f) => instrumentTypes.includes(f.type ?? "argo"))}
           highlight={view === "hazard" ? selectedAdvisory : null}
-          selectedId={selectedFloat?.id}
+          selectedId={evidenceSelection?.id ?? selectedFloat?.id}
           onSelectFloat={handleSelectFloat}
           onHoverPoint={setHoverPoint}
           onPickPoint={handlePickPoint}
@@ -371,6 +435,14 @@ export default function App() {
           verticalExaggeration={verticalExaggeration}
           layerOpacity={layerOpacity}
           volumeTransfer={volumeTransfer}
+          modelDepths={meta.depths}
+          evidencePoint={pickedPoint}
+          evidenceCandidates={evidenceCandidates}
+          evidenceSelection={evidenceSelection}
+          scientificOpen={scientificOpen}
+          waveMotion={waveMotion}
+          showScientificMesh={showScientificMesh}
+          neutralRelief={neutralRelief}
           searchTarget={searchTarget}
           onClearSearch={() => setSearchTarget(null)}
         />
@@ -379,22 +451,19 @@ export default function App() {
       <Loading show={booting} text={meta ? "Rendering ocean surface…" : "Loading ocean data…"} />
 
       <AppNav
-        view={view}
-        onView={(v) => {
-          setView(v);
-          setPlaying(false);
-          setSelectedFloat(null);
-          setPickedPoint(null);
-        }}
-        alertCount={
-          (hazardMetric === "anomaly"
-            ? hazard?.anomaly_field?.advisories
-            : hazard?.advisories)?.length ?? 0
-        }
+        mode={experienceMode}
+        onMode={handleMode}
         bounds={meta?.bounds}
         searchTarget={searchTarget}
         onClearCoordinate={() => setSearchTarget(null)}
         onGuide={() => setGuideOpen(true)}
+        scientificOpen={scientificOpen}
+        onScientificToggle={() => {
+          const next = !scientificOpen;
+          setScientificOpen(next);
+          setExperienceMode(next ? "analyze" : "explore");
+          setOpenTab(next ? "layers" : "variable");
+        }}
         onCoordinateSearch={({ lat, lon }) => {
           setView("explorer");
           setOpenTab(null);
@@ -406,7 +475,7 @@ export default function App() {
 
       {meta && view === "explorer" && (
         <SidePanel
-          open={openTab}
+          open={scientificOpen ? (openTab ?? "layers") : openTab}
           onToggle={setOpenTab}
           variables={meta.variables}
           variable={variable}
@@ -424,6 +493,8 @@ export default function App() {
             setTimestep(t);
           }}
           playing={playing}
+          playbackSpeed={playIntervalMs}
+          onPlaybackSpeed={setPlayIntervalMs}
           onPlayToggle={() => setPlaying((p) => !p)}
           colormap={palette}
           range={manualApplied ?? range}
@@ -437,7 +508,7 @@ export default function App() {
           onManualRange={setManualRange}
           units={activeVar?.units ?? ""}
           renderMode={renderMode}
-          onRenderMode={setRenderMode}
+          onRenderMode={(mode) => { setRenderMode(mode); setSceneTool(mode === "surface" ? "2d" : mode === "volume" ? "3d" : mode); }}
           volumeAvailable={volumeAvailable && !forecastEnabled}
           showCurrents={showCurrents}
           onShowCurrents={setShowCurrents}
@@ -448,6 +519,10 @@ export default function App() {
           isoRange={ranges?.global}
           verticalExaggeration={verticalExaggeration}
           onVerticalExaggeration={setVerticalExaggeration}
+          waveMotion={waveMotion}
+          onWaveMotion={setWaveMotion}
+          showScientificMesh={showScientificMesh}
+          onShowScientificMesh={setShowScientificMesh}
           layerOpacity={layerOpacity}
           onLayerOpacity={(name, value) => setLayerOpacity((current) => ({ ...current, [name]: value }))}
           volumeTransfer={volumeTransfer}
@@ -478,7 +553,23 @@ export default function App() {
             const result = await uploadDataset(file);
             pushToast(`Validated ${result.filename}: ${result.variables.length} variables registered`);
           }}
+          scientificOpen={scientificOpen}
+          onStory={handleStory}
+          onGuide={() => setGuideOpen(true)}
         />
+      )}
+
+      {ready && view === "explorer" && <ModePanel mode={experienceMode} variable={variable} onClose={() => handleMode("explore")} onGuide={() => setGuideOpen(true)} />}
+      {ready && view === "explorer" && <SceneToolbar active={sceneTool} onTool={handleSceneTool} />}
+      {ready && view === "explorer" && !shownPoint && !shownFloat && <ContextPlaceholder field={field} />}
+
+      {ready && view === "explorer" && !pickedPoint && !selectedFloat && (
+        <section className="scene-context" aria-label="Current ocean view">
+          <span>YOU ARE EXPLORING</span>
+          <strong>{field.label}</strong>
+          <p>{field.surface ? "At the sea surface" : `${field.depth} metres below the surface`} · {field.month_label}</p>
+          {!field.surface && verticalExaggeration > 1 && <button onClick={() => { setScientificOpen(true); setOpenTab("layers"); }}>Depth stretched ×{verticalExaggeration} · Why?</button>}
+        </section>
       )}
 
       {ready && view === "explorer" && (
@@ -498,6 +589,7 @@ export default function App() {
           onPlay={() => setPlaying((value) => !value)}
           onTimestep={(value) => { setPlaying(false); setTimestep(value); }}
         />
+        <WorkspaceDepth depths={meta.depths} depth={depth} surfaceOnly={Boolean(field.surface)} onDepth={(value) => { setDepth(value); setPlaying(false); }} />
         </div>
       )}
 
@@ -522,17 +614,25 @@ export default function App() {
       )}
 
       {ready && view === "explorer" && shownPoint && (
-        <PointProfile
+        <EvidencePanel
+          key={`${shownPoint.lat}-${shownPoint.lon}-${timestep}-${variable}`}
           point={shownPoint}
           closing={pointClosing}
           variable={variable}
-          units={field.units}
           label={field.label}
+          units={field.units}
+          source={meta.source_label}
+          dataset="incois_argo_mnt_VAM"
           timestep={timestep}
-          monthLabel={field.month_label}
+          time={meta.timesteps[timestep]}
           depths={meta.depths}
-          floats={floats}
-          onClose={() => setPickedPoint(null)}
+          range={range}
+          onAnalyze={() => { setExperienceMode("analyze"); setScientificOpen(true); setOpenTab("layers"); setPickedPoint(null); }}
+          onNearestValid={moveToNearestValidPoint}
+          onChooseDepth={() => { setPickedPoint(null); setExperienceMode("explore"); setScientificOpen(false); setOpenTab("depth"); }}
+          onCandidates={setEvidenceCandidates}
+          onSelected={setEvidenceSelection}
+          onClose={() => { setPickedPoint(null); setEvidenceCandidates([]); setEvidenceSelection(null); }}
         />
       )}
 

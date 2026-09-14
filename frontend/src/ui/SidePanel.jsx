@@ -4,12 +4,12 @@ import DepthSlider from "./DepthSlider";
 import { useClosable } from "./useClosable";
 
 const TABS = [
-  { id: "variable", label: "Data layer", hint: "Choose the ocean variable to display" },
-  { id: "depth", label: "Depth", hint: "Choose a water depth" },
-  { id: "time", label: "Time & forecast", hint: "Animate analyses and explore forecast lead times" },
+  { id: "variable", label: "Explore", hint: "Choose what to explore" },
+  { id: "depth", label: "Go deeper", hint: "Look at a different ocean depth" },
+  { id: "time", label: "Watch changes", hint: "Move through time" },
   { id: "colorbar", label: "Colour scale", hint: "Adjust palette, range and value distribution" },
-  { id: "layers", label: "3D display", hint: "Change the 3D rendering style" },
-  { id: "instruments", label: "Instruments", hint: "Show or hide observation platforms" },
+  { id: "layers", label: "3D analysis", hint: "Change the scientific rendering method" },
+  { id: "instruments", label: "Real measurements", hint: "Show ocean observation platforms" },
 ];
 
 function ToolIcon({ name }) {
@@ -22,6 +22,16 @@ function ToolIcon({ name }) {
     instruments: <><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="8"/></>,
   };
   return <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
+}
+
+function VariableIcon({ name }) {
+  const paths = {
+    temperature: <><path d="M10 5a2 2 0 0 1 4 0v8.1a4 4 0 1 1-4 0V5Z"/><path d="M12 8v7"/></>,
+    salinity: <path d="M12 3s6 7 6 11a6 6 0 0 1-12 0c0-4 6-11 6-11Z"/>,
+    current_speed: <><path d="M3 8h14l-3-3M21 16H7l3 3"/></>,
+    chlorophyll: <><path d="M19 5C10 5 6 9 6 16c7 0 11-4 13-11Z"/><path d="M5 19c3-5 6-7 11-9"/></>,
+  };
+  return <svg className="variable-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
 
 /**
@@ -42,6 +52,8 @@ export default function SidePanel({
   onTimestep,
   playing,
   onPlayToggle,
+  playbackSpeed,
+  onPlaybackSpeed,
   fetching,
   colormap,
   range,
@@ -68,6 +80,10 @@ export default function SidePanel({
   isoRange,
   verticalExaggeration,
   onVerticalExaggeration,
+  waveMotion,
+  onWaveMotion,
+  showScientificMesh,
+  onShowScientificMesh,
   layerOpacity,
   onLayerOpacity,
   volumeTransfer,
@@ -81,6 +97,9 @@ export default function SidePanel({
   onInstrumentTypes,
   onInstrumentUpload,
   onDatasetUpload,
+  scientificOpen = false,
+  onStory,
+  onGuide,
 }) {
   // `view` lags `open` by one animation so closing can animate out.
   const [view, closing] = useClosable(open);
@@ -131,7 +150,7 @@ export default function SidePanel({
   useEffect(() => {
     if (!open) return undefined;
     const away = (e) => {
-      if (dockRef.current && !dockRef.current.contains(e.target)) onToggle(null);
+      if (window.innerWidth <= 1100 && dockRef.current && !dockRef.current.contains(e.target)) onToggle(null);
     };
     const key = (e) => {
       if (e.key === "Escape") onToggle(null);
@@ -157,7 +176,7 @@ export default function SidePanel({
           onPointerUp={endDockDrag}
           onPointerCancel={endDockDrag}
         ><span/><span/><span/></button>
-        {TABS.map((t) => (
+        {TABS.filter((t) => scientificOpen || !["colorbar", "layers"].includes(t.id)).map((t) => (
           <button
             key={t.id}
             data-tour={t.id}
@@ -180,12 +199,13 @@ export default function SidePanel({
               ›
             </button>
           </header>
+          {scientificOpen && <><div className="scientific-dataset"><span>DATASET</span><code>incois_argo_mnt_VAM</code><small>Variable: {variable} · real INCOIS gridded Argo analysis</small></div><nav className="scientific-drawer-nav" aria-label="Scientific control sections">{TABS.map(tab => <button key={tab.id} className={view === tab.id ? "active" : ""} onClick={() => onToggle(tab.id)}>{tab.label}</button>)}</nav></>}
 
           {view === "variable" && (
             <div className="panel-body">
-              <p className="hint">What would you like to see?</p>
+              <div className="explore-panel-title"><span>EXPLORE THE WATER COLUMN</span><h3>What would you like to explore?</h3><p>Choose what you want to see in the ocean.</p></div>
               <div className="radio-list">
-                {variables.map((v) => (
+                {variables.slice().sort((a, b) => ["temperature", "salinity", "current_speed", "chlorophyll"].indexOf(a.id) - ["temperature", "salinity", "current_speed", "chlorophyll"].indexOf(b.id)).map((v) => (
                   <button
                     key={v.id}
                     className={v.id === variable ? "radio active" : "radio"}
@@ -193,15 +213,23 @@ export default function SidePanel({
                     title={v.available ? undefined : v.note || "Coming soon"}
                     onClick={() => v.available && onVariable(v.id)}
                   >
-                    <span className="radio-dot" aria-hidden="true" />
+                    <VariableIcon name={v.id}/>
                     <span className="radio-text">
-                      {v.label}
-                      <em>{v.units}</em>
+                      {{ temperature: "Ocean temperature", salinity: "Salinity", current_speed: "Ocean currents", chlorophyll: "Microscopic ocean plants" }[v.id] ?? v.label}
+                      <small>{{ temperature: "Where is the water warmer or colder?", salinity: "How salty is the water?", current_speed: "See how water moves.", chlorophyll: "See areas rich in microscopic plant life." }[v.id]}</small>
+                      <em>Scientific variable: {v.id} · {v.units}</em>
                     </span>
                     {!v.available && <span className="soon">Coming soon</span>}
                   </button>
                 ))}
               </div>
+              <section className="quick-stories">
+                <header><span>EXPLORE A STORY</span><small>Guided with real controls</small></header>
+                <button onClick={() => onStory?.("depth")}><span><b>Why does the ocean get colder with depth?</b><small>3 min · Temperature</small></span><i>→</i></button>
+                <button onClick={() => onStory?.("argo")}><span><b>How does an Argo float measure the ocean?</b><small>3 min · Real measurements</small></span><i>→</i></button>
+                <button onClick={() => onStory?.("model")}><span><b>Can a computer model match reality?</b><small>4 min · Model + observation</small></span><i>→</i></button>
+              </section>
+              <button className="new-here" onClick={onGuide}><span><b>New here?</b><small>Learn the basics in 2 minutes</small></span><i>Quick tour →</i></button>
             </div>
           )}
 
@@ -217,7 +245,7 @@ export default function SidePanel({
                 </p>
               ) : (
                 <>
-                  <p className="hint">Surface at the top, deepest at the bottom.</p>
+                  <p className="hint"><strong>Sea surface</strong> is at the top. Move downward to look deeper.</p>
                   <DepthSlider depths={depths} depth={depth} onDepth={onDepth} />
                 </>
               )}
@@ -276,6 +304,7 @@ export default function SidePanel({
                   </button>
                 ))}
               </div>
+              <div className="time-speed"><span>Playback speed</span>{[[2500,"Slow"],[1500,"Normal"],[800,"Fast"]].map(([value, text]) => <button key={value} className={playbackSpeed === value ? "active" : ""} onClick={() => onPlaybackSpeed(value)}>{text}</button>)}</div>
               <div className="control-divider" />
               <label className="toggle-row">
                 <span><strong>Forecast model</strong><small>Project 1–3 months beyond the latest analysis</small></span>
@@ -423,14 +452,15 @@ export default function SidePanel({
               <p className="hint">Choose a simple way to look at the water.</p>
               <p className="field-label">Ocean view</p>
               <div className="segmented render-mode-control">
-                <button className={renderMode === "surface" ? "seg active" : "seg"} onClick={() => onRenderMode("surface")}>Ocean surface</button>
-                <button className={renderMode === "slice" ? "seg active" : "seg"} disabled={!volumeAvailable} onClick={() => onRenderMode("slice")}>Depth sheet</button>
-                <button className={renderMode === "volume" ? "seg active" : "seg"} disabled={!volumeAvailable} onClick={() => onRenderMode("volume")}>See inside</button>
+                <button className={renderMode === "surface" ? "seg active" : "seg"} onClick={() => onRenderMode("surface")}>Geographic surface</button>
+                <button className={renderMode === "slice" ? "seg active" : "seg"} disabled={!volumeAvailable} onClick={() => onRenderMode("slice")}>Depth slice</button>
+                <button className={renderMode === "volume" ? "seg active" : "seg"} disabled={!volumeAvailable} onClick={() => onRenderMode("volume")}>Full water column</button>
+                <button className={renderMode === "isosurface" ? "seg active" : "seg"} disabled={!volumeAvailable} onClick={() => { onRenderMode("isosurface"); onShowIsosurface(true); }}>Isosurface</button>
               </div>
 
               {renderMode === "volume" && volumeAvailable && (
                 <div className="transfer-editor">
-                  <div className="transfer-title"><span><strong>Volume transfer function</strong><small>Value → colour and opacity</small></span><button className="link-button" onClick={() => onVolumeTransfer({ density: 1, low: 0, high: 1, clipNear: 0, clipDeep: 1, quality: 96 })}>Reset</button></div>
+                  <div className="transfer-title"><span><strong>Volume transfer function</strong><small>Value → colour and opacity</small></span><button className="link-button" onClick={() => onVolumeTransfer({ density: 1, low: 0, high: 1, clipNear: 0, clipDeep: 1, quality: 64 })}>Reset</button></div>
                   <div className="transfer-preview" style={{ background: `linear-gradient(to right, ${gradient(palette)})` }}><i style={{ left: `${volumeTransfer.low * 100}%`, right: `${(1 - volumeTransfer.high) * 100}%` }} /></div>
                   <div className="transfer-presets"><button onClick={() => onVolumeTransfer({ low: 0.65, high: 1, density: 1.4 })}>Warm water</button><button onClick={() => onVolumeTransfer({ low: 0.35, high: 0.68, density: 1.2 })}>Middle</button><button onClick={() => onVolumeTransfer({ low: 0, high: 0.38, density: 1.4 })}>Cool water</button></div>
                   <details className="scientist-controls"><summary>More controls</summary><div>
@@ -441,7 +471,7 @@ export default function SidePanel({
                   <div className="dual-readout"><span>Depth clipping</span><strong>{Math.round(volumeTransfer.clipNear * 100)}–{Math.round(volumeTransfer.clipDeep * 100)}%</strong></div>
                   <label className="range-control compact"><span>Shallow boundary</span><input type="range" min="0" max={Math.max(0, volumeTransfer.clipDeep - 0.05)} step="0.01" value={volumeTransfer.clipNear} onChange={(e) => onVolumeTransfer({ clipNear: Number(e.target.value) })}/></label>
                   <label className="range-control compact"><span>Deep boundary</span><input type="range" min={Math.min(1, volumeTransfer.clipNear + 0.05)} max="1" step="0.01" value={volumeTransfer.clipDeep} onChange={(e) => onVolumeTransfer({ clipDeep: Number(e.target.value) })}/></label>
-                  <p className="field-label">Interaction quality</p><div className="segmented">{[[64,"Fast"],[96,"Balanced"],[160,"Fine"]].map(([value,label])=><button key={value} className={volumeTransfer.quality === value ? "seg active" : "seg"} onClick={() => onVolumeTransfer({ quality: value })}>{label}</button>)}</div>
+                  <p className="field-label">Interaction quality</p><div className="segmented">{[[48,"Fast"],[64,"Balanced"],[96,"Fine"]].map(([value,label])=><button key={value} className={volumeTransfer.quality === value ? "seg active" : "seg"} onClick={() => onVolumeTransfer({ quality: value })}>{label}</button>)}</div>
                   </div></details>
                 </div>
               )}
@@ -450,9 +480,19 @@ export default function SidePanel({
                 <span>Vertical exaggeration <strong>{verticalExaggeration}×</strong></span>
                 <input type="range" min="1" max="12" step="1" value={verticalExaggeration} onChange={(e) => onVerticalExaggeration(Number(e.target.value))} />
               </label>
+              <details className="plain-explanation"><summary>Why stretch depth?</summary><p>The ocean is extremely wide compared with its depth. Stretching the vertical view makes underwater structures visible; the scientific values stay unchanged.</p></details>
 
               <label className="toggle-row">
-                <span><strong>Current vectors</strong><small>Animated real INCOIS U/V glyphs</small></span>
+                <span><strong>Subtle wave motion</strong><small>Visual motion only; analytical relief remains data-driven</small></span>
+                <input type="checkbox" checked={waveMotion} onChange={(e) => onWaveMotion(e.target.checked)} />
+              </label>
+              <label className="toggle-row">
+                <span><strong>Scientific mesh</strong><small>Restrained overlay following the displaced model grid</small></span>
+                <input type="checkbox" checked={showScientificMesh} onChange={(e) => onShowScientificMesh(e.target.checked)} />
+              </label>
+
+              <label className="toggle-row">
+                <span><strong>Surface current vectors</strong><small>Animated real INCOIS U/V glyphs</small></span>
                 <input type="checkbox" checked={showCurrents} onChange={(e) => onShowCurrents(e.target.checked)} />
               </label>
               <label className="toggle-row">
@@ -490,6 +530,7 @@ export default function SidePanel({
           {view === "instruments" && (
             <div className="panel-body">
               <p className="hint">Turn ocean robots on or off. Tap a marker to see what it measured.</p>
+              <details className="instrument-intro"><summary>What is an Argo float?</summary><div className="argo-cycle" aria-label="An Argo float sinks, measures the ocean, rises, then sends data from the surface"><span>Surface · sends data</span><i>↓</i><b>Measures while diving</b><i>↑</i><span>Returns to surface</span></div><p>An Argo float is a robotic ocean instrument. It sinks through the water, measures temperature and salinity, then returns to the surface and sends its data.</p></details>
               <div className="instrument-filters">
                 {["argo", "glider", "ctd", "bgc"].map((kind) => {
                   const count = instruments.filter((item) => (item.type ?? "argo") === kind).length;
@@ -502,7 +543,7 @@ export default function SidePanel({
                   );
                 })}
               </div>
-              <div className="control-divider" />
+              <details className="scientist-controls"><summary>Scientific data import</summary><div>
               <label className="field-label" htmlFor="instrument-type">Import CSV/ASCII profiles</label>
               <select id="instrument-type" className="select-native" defaultValue="glider">
                 <option value="glider">Glider</option><option value="ctd">CTD</option><option value="bgc">BGC</option><option value="argo">Argo</option>
@@ -523,7 +564,7 @@ export default function SidePanel({
                 try { await onDatasetUpload(file); event.target.value = ""; }
                 catch (error) { window.alert(error.message); }
               }} />
-              <p className="hint small">Validated uploads are registered safely and do not replace the active operational dataset.</p>
+              <p className="hint small">Validated uploads are registered safely and do not replace the active operational dataset.</p></div></details>
             </div>
           )}
         </section>

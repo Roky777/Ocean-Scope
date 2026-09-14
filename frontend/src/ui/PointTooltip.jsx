@@ -1,5 +1,6 @@
 const fmtLat = (v) => `${Math.abs(v).toFixed(2)}° ${v >= 0 ? "N" : "S"}`;
 const fmtLon = (v) => `${Math.abs(v).toFixed(2)}° ${v >= 0 ? "E" : "W"}`;
+const displayUnits = (units) => units === "degC" ? "°C" : units;
 
 /**
  * Transient read-out that follows the cursor over the ocean surface.
@@ -24,7 +25,7 @@ export default function PointTooltip({ point, label, units }) {
       }}
     >
       <div className="point-tip-value">
-        {point.value == null ? "no data" : `${point.value.toFixed(2)} ${units}`}
+        {point.value == null ? "no data" : `${point.value.toFixed(2)} ${displayUnits(units)}`}
       </div>
       <div className="point-tip-meta">
         {fmtLat(point.lat)} · {fmtLon(point.lon)}

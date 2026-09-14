@@ -2,6 +2,7 @@ import { gradient } from "../colormaps";
 import { denormalise } from "../grid";
 
 const TICKS = 5;
+const displayUnits = (units) => units === "degC" ? "°C" : units;
 
 /** Horizontal colorbar docked at the bottom of the scene. */
 export default function Colorbar({ label, units, colormap, range, context, scaleType = "linear" }) {
@@ -19,7 +20,7 @@ export default function Colorbar({ label, units, colormap, range, context, scale
     <div className="colorbar-dock">
       <div className="colorbar-head">
         <span className="colorbar-label">
-          {label} <em>({units})</em>
+          {label} <em>({displayUnits(units)})</em>
         </span>
         <span className="colorbar-context">{context}</span>
       </div>
@@ -34,6 +35,8 @@ export default function Colorbar({ label, units, colormap, range, context, scale
           </span>
         ))}
       </div>
+      <div className="colorbar-words"><span>{label.toLowerCase().includes("temperature") ? "Cooler" : "Lower"}</span><span>{label.toLowerCase().includes("temperature") ? "Warmer" : "Higher"}</span></div>
+      <p className="colorbar-explanation">Colors show {label.toLowerCase()}.{label.toLowerCase().includes("temperature") ? " Warm colors do not automatically mean danger." : ""}</p>
     </div>
   );
 }

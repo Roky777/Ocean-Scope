@@ -47,6 +47,8 @@ const url = {
   },
   forecast: (lead) =>
     LIVE ? `${LIVE}/api/forecast?lead=${lead}` : `${STATIC_ROOT}/forecast/${lead}.json`,
+  evidenceSearch: () => `${LIVE}/api/evidence/search`,
+  collocate: () => `${LIVE}/api/evidence/collocate`,
 };
 
 async function getJSON(path) {
@@ -79,6 +81,23 @@ export const fetchInstruments = async () => {
     })),
   };
 };
+
+async function postJSON(path, payload) {
+  if (!LIVE) throw new Error("Feature → Evidence requires the live FastAPI service");
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail ?? `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export const searchEvidence = (selection) => postJSON(url.evidenceSearch(), selection);
+export const collocateEvidence = (request) => postJSON(url.collocate(), request);
 
 export async function uploadInstruments(file, instrumentType, columnMapping = {}) {
   if (!LIVE) throw new Error("Uploads require the live FastAPI service");

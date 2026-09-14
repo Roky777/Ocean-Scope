@@ -7,6 +7,9 @@ indicators for the India EEZ study region (5–25°N, 65–97°E).
 
 ## What works
 
+- **Feature → Evidence:** select a model point, search and rank time-aligned
+  Argo profiles, then compare the observation against a transparently
+  collocated model profile without leaving the 3D scene.
 - Temperature and salinity terrain across 5, 50, 100, 200, and 500 m.
 - GPU ray-marched volume rendering for depth-resolved variables.
 - Marching-tetrahedra isosurface extraction.
@@ -140,6 +143,9 @@ changing data is required.
 | `GET /ogc/wms` | Basic WMS GetCapabilities/GetMap service |
 | `GET /ogc/wcs` | Basic WCS GetCapabilities/GetCoverage service |
 | `GET /api/health` | Backend health check |
+| `GET /api/evidence/config` | Configurable search thresholds, QC policy, and ranking weights |
+| `POST /api/evidence/search` | Rank real observations by space, time, depth overlap, and QC |
+| `POST /api/evidence/collocate` | Wet-cell/time/depth match with bias, MAE, RMSE, and full paired profile |
 
 Legacy `/api/slice` and `/api/sst` endpoints remain for the earlier prototype
 views but are not the primary application pipeline.

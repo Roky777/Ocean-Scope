@@ -13,5 +13,17 @@ export function SensorLegend({ instruments }) {
 
 export function WorkspaceTimeline({ timesteps, timestep, onTimestep, playing, onPlay }) {
   if (!timesteps?.length) return null;
-  return <section className="workspace-timeline" aria-label="Choose a month"><button className="timeline-play" onClick={onPlay} aria-label={playing ? "Pause animation" : "Play the months"}>{playing ? "❚❚" : "▶"}</button><div><header><span>{playing ? "Playing months" : "Choose a month"}</span><strong>{timesteps[timestep]?.label}</strong></header><input aria-label="Month" type="range" min="0" max={timesteps.length-1} step="1" value={timestep} onChange={e=>onTimestep(Number(e.target.value))}/></div></section>;
+  const active = timesteps[timestep];
+  const exact = active?.time ? new Intl.DateTimeFormat("en-GB", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:false, timeZone:"UTC" }).format(new Date(active.time)).replace(",", " ·") : active?.label;
+  return <section className="workspace-timeline" aria-label="Watch ocean changes"><button className="timeline-play" onClick={onPlay} aria-label={playing ? "Pause changes" : "Watch changes"}>{playing ? "❚❚" : "▶"}</button><div><header><span>{playing ? "Watching changes" : "Drag to move through time"}</span><strong>{exact} UTC</strong></header><input aria-label="Analysis month" type="range" min="0" max={timesteps.length-1} step="1" value={timestep} onChange={e=>onTimestep(Number(e.target.value))}/></div></section>;
+}
+
+export function WorkspaceDepth({ depths, depth, onDepth, surfaceOnly }) {
+  if (!depths?.length) return null;
+  const index = Math.max(0, depths.indexOf(depth));
+  return <section className="workspace-depth" aria-label="Ocean depth">
+    <header><span>Depth</span><strong>{surfaceOnly ? "Surface only" : index === 0 ? `${depth} m · surface layer` : `${depth} m below surface`}</strong></header>
+    <input aria-label="Ocean depth" type="range" min="0" max={depths.length - 1} step="1" value={index} disabled={surfaceOnly} onChange={event => onDepth(depths[Number(event.target.value)])}/>
+    <footer><span>{depths[0]} m</span><span>Deeper ocean</span><span>{depths.at(-1)} m</span></footer>
+  </section>;
 }

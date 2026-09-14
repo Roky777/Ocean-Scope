@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
 const SECTIONS = [
-  { id: "explorer", label: "Explorer", mobileLabel: "Explore", hint: "Explore ocean data in 3D" },
-  { id: "hazard", label: "Advisories", mobileLabel: "Alerts", hint: "View ocean hazard advisories" },
-  { id: "about", label: "Data & About", mobileLabel: "About", hint: "View data sources and project information" },
+  { id: "explore", label: "Explore", hint: "Choose and inspect an ocean layer" },
+  { id: "understand", label: "Understand", hint: "Explain the active ocean view" },
+  { id: "verify", label: "Verify", hint: "Check model data with real measurements" },
+  { id: "analyze", label: "Analyze", hint: "Open scientific controls" },
+  { id: "learn", label: "Learn", hint: "Learn ocean science in the live scene" },
 ];
 
 const SUGGESTED_LOCATIONS = [
@@ -19,14 +21,15 @@ const SUGGESTED_LOCATIONS = [
  * that belong to the whole app rather than to one panel.
  */
 export default function AppNav({
-  view,
-  onView,
-  alertCount,
+  mode,
+  onMode,
   bounds,
   onCoordinateSearch,
   searchTarget,
   onClearCoordinate,
   onGuide,
+  scientificOpen,
+  onScientificToggle,
 }) {
   const [coordinateOpen, setCoordinateOpen] = useState(false);
   const [latitudeText, setLatitudeText] = useState("");
@@ -58,14 +61,14 @@ export default function AppNav({
 
   useEffect(() => {
     const shortcut = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && view === "explorer") {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCoordinateOpen(true);
       }
     };
     document.addEventListener("keydown", shortcut);
     return () => document.removeEventListener("keydown", shortcut);
-  }, [view]);
+  }, []);
 
   const parseAxis = (text, positive, negative) => {
     const match = text.trim().match(/^([+-]?\d+(?:\.\d+)?)\s*°?\s*([NSEW])?$/i);
@@ -113,31 +116,27 @@ export default function AppNav({
     <header className="appnav">
       <div className="appnav-brand">
         <span className="brand-mark" aria-hidden="true" />
-        <span className="brand-name">3D Ocean Explorer</span>
-        <span className="brand-sub">SIH Prototype · India EEZ</span>
+        <span className="brand-lockup"><b>INCOIS</b><span>Ocean Explorer</span></span>
+        <span className="brand-sub">Real data. Deeper understanding.</span>
       </div>
 
       <nav className="appnav-sections" aria-label="Sections">
         {SECTIONS.map((s) => (
           <button
             key={s.id}
-            className={view === s.id ? "navtab active" : "navtab"}
-            onClick={() => onView(s.id)}
+            className={mode === s.id ? "navtab active" : "navtab"}
+            onClick={() => onMode(s.id)}
             title={s.hint}
-            aria-current={view === s.id ? "page" : undefined}
+            aria-current={mode === s.id ? "page" : undefined}
           >
             <span className="nav-label-full">{s.label}</span>
-            <span className="nav-label-mobile">{s.mobileLabel}</span>
-            {s.id === "hazard" && alertCount > 0 && (
-              <span className="nav-badge" title={`${alertCount} active advisories`}>
-                {alertCount}
-              </span>
-            )}
+            <span className="nav-label-mobile">{s.label}</span>
           </button>
         ))}
       </nav>
 
       <div className="appnav-right">
+        <button className={scientificOpen ? "science-toggle active" : "science-toggle"} onClick={onScientificToggle} aria-pressed={scientificOpen} title="Open scientific controls"><svg className="settings-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.8-1.8.9-1.9-2.2-2.2-1.9.9-1.8-.8-.7-2h-3l-.7 2-1.8.8-1.9-.9L.9 6.1 1.8 8l-.8 1.8-2 .7v3l2 .7.8 1.8-.9 1.9 2.2 2.2 1.9-.9 1.8.8.7 2h3l.7-2 1.8-.8 1.9.9 2.2-2.2-.9-1.9.8-1.8 2-.7Z" transform="translate(2 0) scale(.84)"/></svg><span>Settings</span></button>
         <button className="guide-help" onClick={onGuide} title="Open the getting-started guide" aria-label="Open interface guide">
           <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="9" />
@@ -146,8 +145,7 @@ export default function AppNav({
           </svg>
           <span>Guide</span>
         </button>
-        {view === "explorer" && (
-          <div className="coordinate-search" ref={coordinateRef}>
+        <div className="coordinate-search" ref={coordinateRef}>
             <button
               className={coordinateOpen ? "coordinate-trigger active" : "coordinate-trigger"}
               onClick={() => {
@@ -158,7 +156,7 @@ export default function AppNav({
               title="Find a latitude and longitude"
             >
               <span className="location-icon" aria-hidden="true" />
-              <span>{searchTarget ? `${searchTarget.lat.toFixed(2)}°, ${searchTarget.lon.toFixed(2)}°` : "Location"}</span>
+              <span>{searchTarget ? `${searchTarget.lat.toFixed(2)}°, ${searchTarget.lon.toFixed(2)}°` : "Search region"}</span>
               <kbd>⌘K</kbd>
             </button>
             {searchTarget && (
@@ -223,8 +221,7 @@ export default function AppNav({
                 </div>
               </form>
             )}
-          </div>
-        )}
+        </div>
 
       </div>
     </header>

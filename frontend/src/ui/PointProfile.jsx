@@ -19,10 +19,12 @@ const fmtLon = (v) => `${Math.abs(v).toFixed(2)}° ${v >= 0 ? "E" : "W"}`;
  * this panel costs no network round-trip.
  */
 export default function PointProfile({ point, variable, units, label, timestep,
-                                       monthLabel, depths, floats, onClose, closing }) {
+                                       monthLabel, depths, surfaceOnly = false,
+                                       floats, onClose, closing }) {
+  const sampledDepths = surfaceOnly ? depths.slice(0, 1) : depths;
   const model = useMemo(() => {
     if (!point) return [];
-    return depths
+    return sampledDepths
       .map((depth) => {
         const slice = getCachedField(variable, depth, timestep);
         if (!slice) return null; // not cached yet
@@ -30,7 +32,7 @@ export default function PointProfile({ point, variable, units, label, timestep,
         return value == null ? null : { depth, value };
       })
       .filter(Boolean);
-  }, [point, variable, timestep, depths]);
+  }, [point, variable, timestep, sampledDepths]);
 
   // STRETCH: overlay a real Argo profile if one sits within ~50 km.
   const nearby = useMemo(() => {
@@ -59,7 +61,7 @@ export default function PointProfile({ point, variable, units, label, timestep,
 
   const vMin = hasData ? Math.min(...all.map((p) => p.value)) : 0;
   const vMax = hasData ? Math.max(...all.map((p) => p.value)) : 1;
-  const dMax = Math.max(...depths, ...argoPoints.map((p) => p.depth), 1);
+  const dMax = Math.max(...sampledDepths, ...argoPoints.map((p) => p.depth), 1);
 
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
@@ -77,7 +79,7 @@ export default function PointProfile({ point, variable, units, label, timestep,
     <aside className={`side-panel point-panel${closing ? " closing" : ""}`} role="dialog" aria-label="Point depth profile">
       <header className="side-panel-head">
         <div>
-          <h2 className="panel-title">Depth profile</h2>
+          <h2 className="panel-title">{surfaceOnly ? "Surface inspection" : "Depth profile"}</h2>
           <p className="panel-sub">
             {fmtLat(point.lat)} · {fmtLon(point.lon)}
           </p>
@@ -92,11 +94,21 @@ export default function PointProfile({ point, variable, units, label, timestep,
 
       {!hasData ? (
         <p className="panel-empty">No data in this column — the point is over land.</p>
+      ) : surfaceOnly ? (
+        <section className="surface-reading" aria-label={`${label} surface value`}>
+          <span>Surface value</span>
+          <strong>{model[0].value.toFixed(2)} <small>{units}</small></strong>
+          <p>
+            This product is available at the ocean surface only. A depth profile
+            is not shown because no subsurface {label.toLowerCase()} levels are
+            present in the loaded dataset.
+          </p>
+        </section>
       ) : (
         <>
           <svg className="profile-chart" viewBox={`0 0 ${W} ${H}`} role="img"
                aria-label={`${label} against depth`}>
-            {depths.map((d) => (
+            {sampledDepths.map((d) => (
               <g key={d}>
                 <line x1={PAD.left} x2={W - PAD.right} y1={y(d)} y2={y(d)} className="grid-line" />
                 <text x={PAD.left - 10} y={y(d) + 4} className="axis-text" textAnchor="end">

@@ -19,7 +19,7 @@ import xarray as xr
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import data_access, hazard, ocean
+from . import data_access, evidence, hazard, ocean
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 NC_PATH = DATA_DIR / "ocean_temp.nc"
@@ -40,7 +40,7 @@ app.add_middleware(
     # blocked by CORS when the API runs on a different host to the UI.
     allow_origins=[o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()],
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -53,6 +53,7 @@ _sst_global_range: tuple[float, float] = (0.0, 1.0)
 app.include_router(ocean.router)
 app.include_router(hazard.router)
 app.include_router(data_access.router)
+app.include_router(evidence.router)
 
 
 @app.on_event("startup")

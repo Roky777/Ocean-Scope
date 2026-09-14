@@ -1,15 +1,15 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
-import { lonToX, latToShapeY, RELIEF } from "../grid";
+import { lonToX, latToShapeY } from "../grid";
 
-const LAND_TOP = RELIEF * 1.03; // just above the tallest ocean relief
-const SKIRT = 0.14;
+const LAND_TOP = 0.14;
+const SKIRT = 0.065;
 
 /**
  * Coastline landmasses as extruded geometry, shaded distinctly from the ocean
  * surface so the two read as different materials in the same scene.
  */
-export default function Land({ land, bounds, exaggeration = 1 }) {
+export default function Land({ land, bounds }) {
   const geometry = useMemo(() => {
     if (!land || !bounds) return null;
 
@@ -49,13 +49,17 @@ export default function Land({ land, bounds, exaggeration = 1 }) {
   }, [land, bounds]);
 
   const edges = useMemo(() => geometry ? new THREE.EdgesGeometry(geometry, 24) : null, [geometry]);
+  useEffect(() => () => {
+    geometry?.dispose();
+    edges?.dispose();
+  }, [geometry, edges]);
   if (!geometry || !edges) return null;
-  return <group rotation-x={-Math.PI / 2} position-y={LAND_TOP * exaggeration}>
+  return <group rotation-x={-Math.PI / 2} position-y={LAND_TOP}>
     <mesh geometry={geometry} castShadow receiveShadow>
-      <meshStandardMaterial color="#30343b" roughness={0.72} metalness={0.12} />
+      <meshStandardMaterial color="#465044" roughness={0.94} metalness={0} />
     </mesh>
     <lineSegments geometry={edges}>
-      <lineBasicMaterial color="#69717d" transparent opacity={0.28} />
+      <lineBasicMaterial color="#a7b49d" transparent opacity={0.3} />
     </lineSegments>
   </group>;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from "react";
+import { Html } from "@react-three/drei";
 import * as THREE from "three";
 import { latToZ, lonToX } from "../grid";
 import { VOLUME_DEPTH } from "./VolumeRenderer";
@@ -16,12 +17,15 @@ export default function Isosurface({ data, opacity = 0.62, exaggeration = 1 }) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     g.computeVertexNormals();
+    g.computeBoundingBox();
     return g;
   }, [data, exaggeration]);
   useEffect(() => () => geometry?.dispose(), [geometry]);
   if (!geometry) return null;
+  const center = geometry.boundingBox?.getCenter(new THREE.Vector3()) ?? new THREE.Vector3();
   return (
-    <mesh geometry={geometry} renderOrder={3}>
+    <group>
+    <mesh geometry={geometry} renderOrder={4}>
       <meshStandardMaterial
         color="#ffcf62"
         emissive="#8c3d13"
@@ -33,5 +37,9 @@ export default function Isosurface({ data, opacity = 0.62, exaggeration = 1 }) {
         roughness={0.42}
       />
     </mesh>
+    <Html position={[center.x, center.y, center.z]} center distanceFactor={19} style={{ pointerEvents: "none" }}>
+      <span className="scene-iso-label">Isosurface · {Number(data.value).toFixed(1)} {data.units}</span>
+    </Html>
+    </group>
   );
 }

@@ -3,7 +3,10 @@ import * as THREE from "three";
 import { sample } from "../colormaps";
 import { HEIGHT, WIDTH, normalise } from "../grid";
 
-const VOLUME_DEPTH = 4.2;
+// At the default 5× visual exaggeration the 500 m water column occupies 8.25
+// world units, about 41% of the 20-unit map width: deep enough to read without
+// pretending that geographic and vertical scales are equal.
+const VOLUME_DEPTH = 1.65;
 
 const vertexShader = `
   out vec3 vOrigin;
@@ -30,6 +33,7 @@ const fragmentShader = `
   uniform float uClipNear;
   uniform float uClipDeep;
   uniform float uSteps;
+  uniform vec3 uVoxel;
   out vec4 fragColor;
 
   vec2 hitBox(vec3 origin, vec3 direction) {
@@ -39,6 +43,11 @@ const fragmentShader = `
     vec3 lo = min(t0, t1);
     vec3 hi = max(t0, t1);
     return vec2(max(max(lo.x, lo.y), lo.z), min(min(hi.x, hi.y), hi.z));
+  }
+
+  float unpackValue(vec3 uvw) {
+    float packed = texture(uVolume, clamp(uvw, vec3(0.0), vec3(1.0))).r;
+    return packed > 0.002 ? clamp((packed * 255.0 - 1.0) / 254.0, 0.0, 1.0) : 0.0;
   }
 
   void main() {
@@ -59,7 +68,20 @@ const fragmentShader = `
         vec3 colour = texture(uPalette, vec2(value, 0.5)).rgb;
         float window = smoothstep(uLow - 0.025, uLow + 0.025, value) * (1.0 - smoothstep(uHigh - 0.025, uHigh + 0.025, value));
         float structure = smoothstep(uLow, max(uLow + 0.02, uHigh), value);
-        float alpha = (0.012 + structure * 0.04) * uOpacity * uDensity * window;
+        // Forward differences reuse the centre sample. This preserves the
+        // boundary lighting with three fewer 3D texture reads per ray step.
+        vec3 gradient = vec3(
+          unpackValue(uvw + vec3(uVoxel.x, 0.0, 0.0)) - value,
+          unpackValue(uvw + vec3(0.0, uVoxel.y, 0.0)) - value,
+          unpackValue(uvw + vec3(0.0, 0.0, uVoxel.z)) - value
+        );
+        float boundary = clamp(length(gradient) * 3.5, 0.0, 1.0);
+        vec3 normal = normalize(gradient + vec3(0.00001));
+        vec3 lightDirection = normalize(vec3(-0.45, 0.72, 0.52));
+        float diffuse = max(0.0, dot(normal, lightDirection));
+        colour *= 0.82 + diffuse * 0.28 * boundary;
+        float alphaValue = 0.009 + structure * 0.03;
+        float alpha = alphaValue * (1.0 + 2.6 * boundary) * uOpacity * uDensity * window;
         accum.rgb += (1.0 - accum.a) * alpha * colour;
         accum.a += (1.0 - accum.a) * alpha;
         if (accum.a > 0.94) break;
@@ -75,19 +97,33 @@ export default function VolumeRenderer({ volume, range, colormap, scaleType, opa
   const resources = useMemo(() => {
     if (!volume) return null;
     const [nz, ny, nx] = volume.shape;
-    const packed = new Uint8Array(nx * ny * nz);
+    const sourceDepths = volume.depths;
+    const maxDepth = sourceDepths.at(-1);
+    // The source levels are unevenly spaced in metres. Resample only for GPU
+    // display so texture Z corresponds to physical depth; every new sample is
+    // a linear interpolation between two real model levels.
+    const textureDepth = Math.max(32, Math.min(64, nz * 10));
+    const packed = new Uint8Array(nx * ny * textureDepth);
     let offset = 0;
-    for (let k = 0; k < nz; k++) {
+    for (let k = 0; k < textureDepth; k++) {
+      const depth = (k / (textureDepth - 1)) * maxDepth;
+      let upper = sourceDepths.findIndex((value) => value >= depth);
+      if (upper < 0) upper = nz - 1;
+      const lower = Math.max(0, upper - 1);
+      const span = sourceDepths[upper] - sourceDepths[lower];
+      const mix = span > 0 ? (depth - sourceDepths[lower]) / span : 0;
       for (let j = 0; j < ny; j++) {
         for (let i = 0; i < nx; i++) {
-          const value = volume.values[k][j][i];
+          const a = volume.values[lower][j][i];
+          const b = volume.values[upper][j][i];
+          const value = a == null || b == null ? null : a + (b - a) * mix;
           packed[offset++] = value == null
             ? 0
             : 1 + Math.round(Math.min(1, Math.max(0, normalise(value, range.min, range.max, scaleType))) * 254);
         }
       }
     }
-    const texture = new THREE.Data3DTexture(packed, nx, ny, nz);
+    const texture = new THREE.Data3DTexture(packed, nx, ny, textureDepth);
     texture.format = THREE.RedFormat;
     texture.type = THREE.UnsignedByteType;
     texture.minFilter = THREE.LinearFilter;
@@ -117,7 +153,8 @@ export default function VolumeRenderer({ volume, range, colormap, scaleType, opa
         uHigh: { value: 1 },
         uClipNear: { value: 0 },
         uClipDeep: { value: 1 },
-        uSteps: { value: 96 },
+        uSteps: { value: 64 },
+        uVoxel: { value: new THREE.Vector3(1 / nx, 1 / ny, 1 / textureDepth) },
       },
       side: THREE.BackSide,
       transparent: true,
@@ -135,7 +172,12 @@ export default function VolumeRenderer({ volume, range, colormap, scaleType, opa
     uniforms.uHigh.value = transfer.high ?? 1;
     uniforms.uClipNear.value = transfer.clipNear ?? 0;
     uniforms.uClipDeep.value = transfer.clipDeep ?? 1;
-    uniforms.uSteps.value = transfer.quality ?? 96;
+    const lowPower = typeof navigator !== "undefined" && (
+      window.innerWidth < 760 ||
+      (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+      (navigator.deviceMemory && navigator.deviceMemory <= 4)
+    );
+    uniforms.uSteps.value = Math.min(transfer.quality ?? 64, lowPower ? 48 : 96);
   }, [resources, opacity, transfer]);
   useEffect(() => () => {
     resources?.texture.dispose();

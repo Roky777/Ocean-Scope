@@ -47,14 +47,18 @@ OUT = Path(__file__).parent / "argo_profiles.json"
 
 BASE = "https://erddap.incois.gov.in/erddap/tabledap/Indian_ARGO_Floats.json"
 
-# The dataset's coverage ends in April 2025, so sample a window just before it.
-START, END = "2025-02-15T00:00:00Z", "2025-04-20T00:00:00Z"
+# Match the final monthly model analyses instead of mixing observations from a
+# different climate period into the evidence workflow.
+START, END = "2019-02-01T00:00:00Z", "2019-04-01T00:00:00Z"
 
 # Same bounds as the ocean grid, so every marker falls inside the scene.
 from region import LAT_MIN, LAT_MAX, LON_MIN, LON_MAX  # noqa: E402
 
 QUERY = (
-    "?PLATFORM_NUMBER%2Clatitude%2Clongitude%2CPRES%2CTEMP%2CPSAL%2Ctime"
+    "?PLATFORM_NUMBER%2CCYCLE_NUMBER%2Clatitude%2Clongitude%2Ctime%2C"
+    "PRES%2CPRES_QC%2CPRES_ADJUSTED%2CPRES_ADJUSTED_QC%2C"
+    "TEMP%2CTEMP_QC%2CTEMP_ADJUSTED%2CTEMP_ADJUSTED_QC%2C"
+    "PSAL%2CPSAL_QC%2CPSAL_ADJUSTED%2CPSAL_ADJUSTED_QC"
     f"&longitude%3E={LON_MIN}&longitude%3C={LON_MAX}"
     f"&latitude%3E={LAT_MIN}&latitude%3C={LAT_MAX}"
     "&PRES%3C=1000"
@@ -77,30 +81,41 @@ def build_profiles(table):
     cycles = defaultdict(list)
 
     for row in table["rows"]:
-        pres, temp = row[col["PRES"]], row[col["TEMP"]]
+        adjusted_pres = row[col["PRES_ADJUSTED"]] if str(row[col["PRES_ADJUSTED_QC"]]).strip() in {"1", "2"} else None
+        adjusted_temp = row[col["TEMP_ADJUSTED"]] if str(row[col["TEMP_ADJUSTED_QC"]]).strip() in {"1", "2"} else None
+        adjusted_sal = row[col["PSAL_ADJUSTED"]] if str(row[col["PSAL_ADJUSTED_QC"]]).strip() in {"1", "2"} else None
+        pres = adjusted_pres if adjusted_pres is not None else row[col["PRES"]]
+        temp = adjusted_temp if adjusted_temp is not None else row[col["TEMP"]]
+        sal = adjusted_sal if adjusted_sal is not None else row[col["PSAL"]]
         if pres is None or temp is None or pres < 0:
             continue
         pid = (row[col["PLATFORM_NUMBER"]] or "").strip()
         if not pid:
             continue
-        cycles[(pid, row[col["time"]])].append(
+        cycles[(pid, row[col["CYCLE_NUMBER"]], row[col["time"]])].append(
             (
                 float(pres),
                 float(temp),
-                row[col["PSAL"]],
+                sal,
                 row[col["latitude"]],
                 row[col["longitude"]],
+                row[col["PRES_ADJUSTED_QC"]] if adjusted_pres is not None else row[col["PRES_QC"]],
+                row[col["TEMP_ADJUSTED_QC"]] if adjusted_temp is not None else row[col["TEMP_QC"]],
+                row[col["PSAL_ADJUSTED_QC"]] if adjusted_sal is not None else row[col["PSAL_QC"]],
+                adjusted_pres is not None,
+                adjusted_temp is not None,
+                adjusted_sal is not None,
             )
         )
 
     # Deepest-sampled cycle per float.
     best = {}
-    for (pid, when), levels in cycles.items():
+    for (pid, cycle, when), levels in cycles.items():
         if pid not in best or len(levels) > len(best[pid][1]):
-            best[pid] = (when, levels)
+            best[pid] = (when, levels, cycle)
 
     profiles = []
-    for pid, (when, levels) in best.items():
+    for pid, (when, levels, cycle) in best.items():
         levels.sort(key=lambda x: x[0])
         if len(levels) < 10:
             continue
@@ -109,26 +124,35 @@ def build_profiles(table):
                           for i in range(MAX_LEVELS)})
             levels = [levels[i] for i in idx]
 
-        profiles.append(
-            {
-                "id": f"argo-{pid}",
-                "platform_number": pid,
-                "lat": round(levels[0][3], 4),
-                "lon": round(levels[0][4], 4),
-                "time": when,
-                "surface_temperature": round(levels[0][1], 3),
-                "max_depth": round(levels[-1][0], 1),
-                "n_levels": len(levels),
-                # depth here is pressure in decibar, ~= metres in the upper ocean
-                "profile": [
+        profile_rows = [
                     {
                         "depth": round(p, 1),
                         "temperature": round(t, 3),
                         "salinity": round(s, 3) if s is not None else None,
+                        "pressure_qc": str(p_qc).strip() if p_qc is not None else None,
+                        "temperature_qc": str(t_qc).strip() if t_qc is not None else None,
+                        "salinity_qc": str(s_qc).strip() if s_qc is not None else None,
+                        "adjusted": {"pressure": bool(p_adj), "temperature": bool(t_adj), "salinity": bool(s_adj)},
                     }
-                    for p, t, s, _, _ in levels
-                ],
+                    for p, t, s, _, _, p_qc, t_qc, s_qc, p_adj, t_adj, s_adj in levels
+                ]
+        first_good = next((point for point in profile_rows if point["temperature_qc"] in {"1", "2"}), profile_rows[0])
+        profiles.append(
+            {
+                "id": f"argo-{pid}",
+                "platform_number": pid,
+                "cycle_number": cycle,
+                "lat": round(levels[0][3], 4),
+                "lon": round(levels[0][4], 4),
+                "time": when,
+                "surface_temperature": first_good["temperature"],
+                "max_depth": round(levels[-1][0], 1),
+                "n_levels": len(levels),
+                # depth here is pressure in decibar, ~= metres in the upper ocean
+                "profile": profile_rows,
                 "source": "real",
+                "source_name": "INCOIS ERDDAP Indian_ARGO_Floats",
+                "qc_convention": "Argo reference table 2",
             }
         )
     return profiles

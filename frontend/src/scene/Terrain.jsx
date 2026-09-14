@@ -9,6 +9,7 @@ import {
   normalise,
   worldToLatLon,
   sampleValueAt,
+  upsample,
 } from "../grid";
 
 const TRANSITION_MS = 420; // spec: 300-500ms eased transition on data change
@@ -41,6 +42,9 @@ export default function Terrain({
   scaleType = "linear",
   opacity = 1,
   exaggeration = 1,
+  waveMotion = true,
+  showWireframe = false,
+  neutralRelief = false,
   onReady,
   onHover,
   onPick,
@@ -59,6 +63,29 @@ export default function Terrain({
     return g;
   }, [rows, cols]);
 
+  const coastalWeights = useMemo(() => {
+    const source = field.values;
+    const nativeRows = source.length;
+    const nativeColumns = source[0].length;
+    const weights = source.map((row, rowIndex) => row.map((value, columnIndex) => {
+      if (value == null) return 0;
+      let valid = 0;
+      let total = 0;
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const r = rowIndex + dr;
+          const c = columnIndex + dc;
+          if (r < 0 || c < 0 || r >= nativeRows || c >= nativeColumns) continue;
+          total++;
+          if (source[r][c] != null) valid++;
+        }
+      }
+      return Math.min(1, Math.max(0.18, valid / Math.max(1, total)));
+    }));
+    const factor = Math.max(1, Math.round((rows - 1) / Math.max(1, nativeRows - 1)));
+    return upsample(weights, factor);
+  }, [field.values, rows]);
+
   useEffect(() => () => geometry.dispose(), [geometry]);
 
   // Target height + colour for every vertex, derived from the current slice.
@@ -73,7 +100,8 @@ export default function Terrain({
       for (let c = 0; c < cols; c++) {
         const idx = r * cols + c;
         const t = normalise(filled[gridRow][c], range.min, range.max, scaleType);
-        heights[idx] = t * RELIEF * exaggeration;
+        const softened = t * t * (3 - 2 * t);
+        heights[idx] = RELIEF * exaggeration * (2 * softened - 1) * coastalWeights[gridRow][c];
         const rgb = toLinear(...sample(colormap, t));
         colors[idx * 3] = rgb.r;
         colors[idx * 3 + 1] = rgb.g;
@@ -81,7 +109,7 @@ export default function Terrain({
       }
     }
     return { heights, colors };
-  }, [filled, range, colormap, scaleType, exaggeration, rows, cols]);
+  }, [filled, range, colormap, scaleType, exaggeration, coastalWeights, rows, cols]);
 
   // Heights excluding ripple, so the ripple never compounds into the data.
   const settled = useRef(new Float32Array(rows * cols));
@@ -90,7 +118,7 @@ export default function Terrain({
   const firstRender = useRef(true);
   const clock = useRef(0);
   const rippleAccumulator = useRef(0);
-  const normalFrame = useRef(0);
+  const normalAccumulator = useRef(0);
   const lastHoverReport = useRef(0);
 
   useEffect(() => {
@@ -124,6 +152,7 @@ export default function Terrain({
     if (!transitioning && rippleAccumulator.current < 1 / 24) return;
     const simulationDelta = rippleAccumulator.current;
     rippleAccumulator.current = 0;
+    normalAccumulator.current += simulationDelta;
     clock.current += simulationDelta * RIPPLE_SPEED;
 
     const pos = geometry.attributes.position;
@@ -156,17 +185,23 @@ export default function Terrain({
       const phaseR = r * 0.32;
       for (let c = 0; c < cols; c++) {
         const i = r * cols + c;
-        const ripple =
-          RIPPLE_AMP * Math.sin(c * 0.26 + time * 1.1) * Math.cos(phaseR + time * 0.8);
+        const ripple = waveMotion && exaggeration > 0
+          ? RIPPLE_AMP * Math.min(1, exaggeration / 0.2) * (
+              Math.sin(c * 0.26 + time * 1.1) * Math.cos(phaseR + time * 0.8) +
+              0.45 * Math.cos(c * 0.14 - r * 0.2 + time * 0.55)
+            )
+          : 0;
         pos.setZ(i, settled.current[i] + ripple);
       }
     }
     pos.needsUpdate = true;
-    // Normal generation is substantially more expensive than moving vertices.
-    // Refresh it periodically and at the end of a data transition.
-    normalFrame.current += 1;
-    if (normalFrame.current % 4 === 0 || (transitioning && progress.current >= 1)) {
+    // Normal generation is much more expensive than moving vertices. The tiny
+    // decorative ripple does not need fresh normals; refresh them only during
+    // a scientific data transition (12 Hz) and once when it settles.
+    const transitionFinished = transitioning && progress.current >= 1;
+    if ((transitioning && normalAccumulator.current >= 1 / 12) || transitionFinished) {
       geometry.computeVertexNormals();
+      normalAccumulator.current = 0;
     }
   });
 
@@ -178,10 +213,9 @@ export default function Terrain({
     handler({ lat, lon, value, clientX: e.clientX, clientY: e.clientY });
   };
 
-  return (
+  const terrainMesh = (
     <mesh
       geometry={geometry}
-      rotation-x={-Math.PI / 2}
       receiveShadow
       onPointerMove={(e) => {
         e.stopPropagation();
@@ -202,18 +236,27 @@ export default function Terrain({
         slides as the camera orbits, which is what makes a surface read as
         water rather than matte clay.
       */}
-      <meshPhysicalMaterial
+      <meshStandardMaterial
         ref={matRef}
-        vertexColors
+        vertexColors={!neutralRelief}
+        color={neutralRelief ? "#8d969b" : "#ffffff"}
         transparent
         opacity={0}
-        roughness={0.38}
+        roughness={0.72}
         metalness={0.0}
-        clearcoat={0.7}
-        clearcoatRoughness={0.28}
         side={THREE.DoubleSide}
         wireframe={Boolean(field.predicted)}
       />
     </mesh>
+  );
+  return (
+    <group rotation-x={-Math.PI / 2}>
+      {terrainMesh}
+      {showWireframe && (
+        <mesh geometry={geometry}>
+          <meshBasicMaterial color="#d5e5ea" wireframe transparent opacity={0.1} depthWrite={false} />
+        </mesh>
+      )}
+    </group>
   );
 }

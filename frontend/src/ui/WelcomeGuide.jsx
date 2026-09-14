@@ -1,15 +1,12 @@
 import { useLayoutEffect, useRef, useState } from "react";
 
 const STEPS = [
-  { title: "Welcome to 3D Ocean Explorer", text: "A guided workspace for comparing ocean model fields with real observation platforms across India's EEZ.", icon: "01" },
-  { title: "Choose a data layer", text: "Display temperature, salinity, chlorophyll or ocean-current speed.", target: '[data-tour="variable"]' },
-  { title: "Move through depth", text: "Inspect the surface or move down through the available water-column levels.", target: '[data-tour="depth"]' },
-  { title: "Analyse time and forecasts", text: "Animate analysis months or enable the experimental 1–3 month forecast model.", target: '[data-tour="time"]' },
-  { title: "Control the colour scale", text: "Change palettes, value ranges and linear or logarithmic scaling.", target: '[data-tour="colorbar"]' },
-  { title: "Change the 3D display", text: "Switch between the surface, depth slices and volumetric rendering, then add currents or isosurfaces.", target: '[data-tour="layers"]' },
-  { title: "Work with observations", text: "Filter Argo, Glider, CTD and BGC platforms, inspect profiles, or import new files.", target: '[data-tour="instruments"]' },
-  { title: "Navigate analysis time", text: "Use Play or drag the month slider. The legend beside it explains the displayed values and units.", target: ".bottom-control-bar", placement: "above" },
-  { title: "You are ready", text: "Drag the map to rotate, scroll to zoom, and select an observation marker to open its depth profile.", icon: "✓" },
+  { title: "Welcome to the ocean below the surface", text: "Explore modelled ocean conditions across India's EEZ, then check them against real measurements when you need evidence.", icon: "01" },
+  { title: "Choose what to see", text: "Start with temperature, salinity, currents or microscopic ocean plants.", target: '[data-tour="variable"]' },
+  { title: "Go deeper", text: "Move from the sea surface into the water column. The depth stretch keeps thin ocean layers visible.", target: '[data-tour="depth"]' },
+  { title: "Watch the ocean change", text: "Play the months or drag the timeline to inspect a particular time.", target: '[data-tour="time"]' },
+  { title: "Check real measurements", text: "Show Argo floats and other instruments, then select one to see its depth profile.", target: '[data-tour="instruments"]' },
+  { title: "You are ready", text: "Drag to rotate, scroll to zoom, or select water to explain it, verify it and open deeper analysis.", icon: "06" },
 ];
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));

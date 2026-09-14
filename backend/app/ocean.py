@@ -190,7 +190,7 @@ def get_meta():
         "default_variable": "temperature" if "temperature" in VARIABLES else next(iter(VARIABLES)),
         "depths": depths,
         "timesteps": [
-            {"index": i, **_timestep_label(t)}
+            {"index": i, "time": _iso_time(t), **_timestep_label(t)}
             for i, t in enumerate(ds["time"].values)
         ],
         # Most recent available step, which is what the scene shows on load.
@@ -205,6 +205,10 @@ def get_meta():
         "source_url": ds.attrs.get("source_url", ""),
         "native_shape": [int(ds.sizes["lat"]), int(ds.sizes["lon"])],
     }
+
+
+def _iso_time(value) -> str:
+    return np.datetime_as_string(np.datetime64(value), unit="s") + "Z"
 
 
 @router.get("/api/field")

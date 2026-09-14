@@ -99,7 +99,7 @@ export function fillGaps(values, passes = 4) {
  * Normalised height (0..1) at a lat/lon, sampled from the filled grid with
  * nearest-neighbour lookup. Used to sit float markers on the surface.
  */
-export function sampleNormalised(filled, lat, lon, field, range) {
+export function sampleNormalised(filled, lat, lon, field, range, scaleType = "linear") {
   const b = field.bounds;
   const rows = filled.length;
   const cols = filled[0].length;
@@ -107,7 +107,7 @@ export function sampleNormalised(filled, lat, lon, field, range) {
   const fj = ((lon - b.lon_min) / (b.lon_max - b.lon_min)) * (cols - 1);
   const i = Math.min(rows - 1, Math.max(0, Math.round(fi)));
   const j = Math.min(cols - 1, Math.max(0, Math.round(fj)));
-  return normalise(filled[i][j], range.min, range.max);
+  return Math.min(1, Math.max(0, normalise(filled[i][j], range.min, range.max, scaleType)));
 }
 
 /**

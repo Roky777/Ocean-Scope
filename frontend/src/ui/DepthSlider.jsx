@@ -63,6 +63,7 @@ export default function DepthSlider({ depths, depth, onDepth }) {
 
   return (
     <div className="depth-slider">
+      <span className="depth-orientation surface">SEA SURFACE</span>
       <div
         ref={trackRef}
         className="depth-track"
@@ -106,6 +107,8 @@ export default function DepthSlider({ depths, depth, onDepth }) {
           </li>
         ))}
       </ul>
+      <span className="depth-orientation deep">DEEPER OCEAN ↓</span>
+      <output className="depth-current">You are looking about {depth} metres below the surface</output>
     </div>
   );
 }
