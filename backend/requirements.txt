@@ -6,3 +6,7 @@ numpy>=1.26
 certifi
 truststore
 scipy>=1.11
+gsw>=3.6.19
+pytest>=8.0
+zarr>=3.0
+dask[array]>=2025.1

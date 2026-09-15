@@ -16,6 +16,7 @@ import WelcomeGuide from "./ui/WelcomeGuide";
 import ModePanel from "./ui/ModePanel";
 import ContextPlaceholder from "./ui/ContextPlaceholder";
 import SceneToolbar from "./ui/SceneToolbar";
+import ScienceLab from "./ui/ScienceLab";
 import { useClosable } from "./ui/useClosable";
 import {
   fetchMeta,
@@ -561,7 +562,15 @@ export default function App() {
 
       {ready && view === "explorer" && <ModePanel mode={experienceMode} variable={variable} onClose={() => handleMode("explore")} onGuide={() => setGuideOpen(true)} />}
       {ready && view === "explorer" && <SceneToolbar active={sceneTool} onTool={handleSceneTool} />}
-      {ready && view === "explorer" && !shownPoint && !shownFloat && <ContextPlaceholder field={field} />}
+      {ready && view === "explorer" && experienceMode !== "analyze" && !shownPoint && !shownFloat && <ContextPlaceholder field={field} />}
+      {ready && view === "explorer" && experienceMode === "analyze" && !shownPoint && !shownFloat && (
+        <ScienceLab
+          bounds={meta.bounds}
+          timestep={timestep}
+          time={meta.timesteps[timestep]}
+          onClose={() => handleMode("explore")}
+        />
+      )}
 
       {ready && view === "explorer" && !pickedPoint && !selectedFloat && (
         <section className="scene-context" aria-label="Current ocean view">
@@ -654,11 +663,15 @@ export default function App() {
 
       <Splash show={splash} ready={!booting} />
 
-      {meta && view !== "about" && (
-        <div className="source-label" title={meta.source}>
-          <span className="source-dot" aria-hidden="true" />
-          Source: {meta.source_label}
-          {field && <em> · {field.shape[0]}×{field.shape[1]} native grid</em>}
+      {meta && field && view !== "about" && (
+        <div className="provenance-bar" title={meta.source}>
+          <span><i className="source-dot" aria-hidden="true" />REAL ANALYSIS</span>
+          <b>{meta.active_dataset?.id ?? "incois_argo_mnt_VAM"}</b>
+          <em>{field.month_label}</em>
+          <em>{field.surface ? "surface" : `${field.depth} m`}</em>
+          <em>{field.shape[0]}×{field.shape[1]}</em>
+          <em>QC: {meta.active_dataset?.qc_mode ?? "source QC"}</em>
+          {field.provenance?.processing && <em>{field.provenance.processing}</em>}
         </div>
       )}
 

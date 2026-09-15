@@ -49,6 +49,8 @@ const url = {
     LIVE ? `${LIVE}/api/forecast?lead=${lead}` : `${STATIC_ROOT}/forecast/${lead}.json`,
   evidenceSearch: () => `${LIVE}/api/evidence/search`,
   collocate: () => `${LIVE}/api/evidence/collocate`,
+  scienceProfile: (lat, lon, timestep) => `${LIVE}/api/science/profile?lat=${lat}&lon=${lon}&timestep=${timestep}`,
+  transect: () => `${LIVE}/api/science/transect`,
 };
 
 async function getJSON(path) {
@@ -98,6 +100,11 @@ async function postJSON(path, payload) {
 
 export const searchEvidence = (selection) => postJSON(url.evidenceSearch(), selection);
 export const collocateEvidence = (request) => postJSON(url.collocate(), request);
+export const fetchScienceProfile = (lat, lon, timestep) => {
+  if (!LIVE) return Promise.reject(new Error("TEOS-10 diagnostics require the live FastAPI service"));
+  return getJSON(url.scienceProfile(lat, lon, timestep));
+};
+export const fetchTransect = (request) => postJSON(url.transect(), request);
 
 export async function uploadInstruments(file, instrumentType, columnMapping = {}) {
   if (!LIVE) throw new Error("Uploads require the live FastAPI service");

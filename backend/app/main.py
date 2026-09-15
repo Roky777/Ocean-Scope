@@ -19,7 +19,7 @@ import xarray as xr
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import data_access, evidence, hazard, ocean
+from . import data_access, evidence, hazard, ocean, scientific
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 NC_PATH = DATA_DIR / "ocean_temp.nc"
@@ -54,6 +54,7 @@ app.include_router(ocean.router)
 app.include_router(hazard.router)
 app.include_router(data_access.router)
 app.include_router(evidence.router)
+app.include_router(scientific.router)
 
 
 @app.on_event("startup")

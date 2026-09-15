@@ -57,6 +57,24 @@ class EvidenceEngineTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["rmse"], 1.5811)
         self.assertNotIn("correlation", metrics)
 
+    def test_bootstrap_ci_is_deterministic_and_contains_point_estimates(self):
+        model = np.array([2.0, 3.5, 4.0, 6.0, 6.5])
+        observed = np.array([1.0, 3.0, 5.0, 5.0, 7.0])
+        first = evidence._metrics(model, observed)
+        second = evidence._metrics(model, observed)
+        self.assertEqual(first["confidence_intervals_95"], second["confidence_intervals_95"])
+        for name in ("bias", "mae", "rmse"):
+            low, high = first["confidence_intervals_95"][name]
+            self.assertLessEqual(low, first[name])
+            self.assertGreaterEqual(high, first[name])
+
+    def test_match_confidence_is_separate_and_degrades_with_mismatch(self):
+        qc = {"good": 8, "probably_good": 0, "rejected": 0}
+        close = evidence._comparison_confidence(10, 12, 8, qc)
+        distant = evidence._comparison_confidence(300, 24 * 60, 2, qc)
+        self.assertGreater(close["score"], distant["score"])
+        self.assertIn("separate from model accuracy", close["meaning"])
+
 
 if __name__ == "__main__":
     unittest.main()

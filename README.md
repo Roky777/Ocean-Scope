@@ -10,6 +10,20 @@ indicators for the India EEZ study region (5–25°N, 65–97°E).
 - **Feature → Evidence:** select a model point, search and rank time-aligned
   Argo profiles, then compare the observation against a transparently
   collocated model profile without leaving the 3D scene.
+- **Uncertainty-aware Evidence v2:** bilinear wet-cell sampling, explicit
+  spatial footprint and fallback method, QC-aware confidence, paired-bootstrap
+  95% intervals, and a complete provenance trail. Match suitability remains
+  separate from model skill.
+- **TEOS-10 diagnostics:** Absolute Salinity, Conservative Temperature,
+  potential density anomaly (sigma0), mixed-layer depth, thermocline depth,
+  and Brunt-Väisälä N² calculated with GSW.
+- **Section Lab:** define an A→B transect and inspect interpolated temperature,
+  salinity, or sigma0 through the full water column.
+- **Production-shaped data plane:** provider-neutral DatasetBundle discovery,
+  optional time/depth/ROI-aligned Zarr storage, and ROI-only little-endian
+  Float32 volume transfer that preserves missing values as NaN.
+- A persistent provenance ribbon shows dataset, source type, valid time,
+  depth, resolution, QC policy, and processing status.
 - Temperature and salinity terrain across 5, 50, 100, 200, and 500 m.
 - GPU ray-marched volume rendering for depth-resolved variables.
 - Marching-tetrahedra isosurface extraction.
@@ -67,6 +81,9 @@ python data/download_chlorophyll.py
 python data/fetch_argo.py
 python data/fetch_instruments.py
 python data/prepare_geography.py
+
+# Optional: create the chunked store used automatically on the next API start
+python data/prepare_zarr.py
 
 uvicorn app.main:app --reload --port 8000
 ```
@@ -128,8 +145,10 @@ changing data is required.
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/meta` | Variables, availability, depths, times, bounds, ranges, and source metadata |
+| `GET /api/catalog` | DatasetBundle discovery and provider capabilities |
 | `GET /api/field?variable=&depth=&timestep=` | Browser-sized 2D field slice |
 | `GET /api/volume?variable=&timestep=` | Depth-resolved grid for ray marching |
+| `GET /api/volume.bin?variable=&timestep=&lat_min=&lat_max=&lon_min=&lon_max=&stride=` | ROI-only Float32 volume with shape/dtype headers |
 | `GET /api/currents?timestep=&stride=` | Sparse real U/V current vectors |
 | `GET /api/isosurface?variable=&timestep=&value=` | Marching-tetrahedra mesh |
 | `GET /api/forecast?lead=` | Baseline SST trend projection for lead 1–3 |
@@ -146,20 +165,28 @@ changing data is required.
 | `GET /api/evidence/config` | Configurable search thresholds, QC policy, and ranking weights |
 | `POST /api/evidence/search` | Rank real observations by space, time, depth overlap, and QC |
 | `POST /api/evidence/collocate` | Wet-cell/time/depth match with bias, MAE, RMSE, and full paired profile |
+| `GET /api/science/profile?lat=&lon=&timestep=` | TEOS-10 profile, density, MLD, thermocline, and N² |
+| `POST /api/science/transect` | Interpolated temperature, salinity, or sigma0 vertical section |
 
 Legacy `/api/slice` and `/api/sst` endpoints remain for the earlier prototype
 views but are not the primary application pipeline.
+
+Run `backend/venv/bin/python backend/data/benchmark_serving.py` to compare the
+nested JSON and binary volume formats. On the current default volume, the
+Float32 response is about 3.3× smaller before HTTP compression.
 
 ## Architecture
 
 ```text
 INCOIS / Argo / Natural Earth
               ↓
-source adapters + xarray / NetCDF preprocessing
+provider contract + DatasetBundle identity + provenance/QC
               ↓
-FastAPI JSON fields, profiles, volumes, vectors and derived layers
+NetCDF fallback or chunked Zarr + ROI query selection
               ↓
-React + Three.js GPU rendering and interaction
+FastAPI metadata JSON + Float32 volumes + scientific diagnostics
+              ↓
+React + Three.js 3D Explorer + Section Lab + Evidence Lab
 ```
 
 Each additional gridded or profile source is implemented as a registered
@@ -181,6 +208,12 @@ static snapshot to expose another sensor or product.
 - The forecast is a transparent baseline trend extrapolation, not an
   operational INCOIS forecast or cyclone prediction.
 - Hazard zones are derived visualization aids, not official warnings.
+- Mixed-layer depth uses a sigma0 increase of 0.03 kg/m³ from the source level
+  nearest 10 m. With five available depths, it is an interpretable diagnostic
+  estimate rather than a high-resolution operational product.
+- Evidence confidence describes matchup representativeness. Bootstrap
+  intervals describe paired-profile sampling variability; neither is an
+  instrument calibration-uncertainty claim.
 - Current data has a long-tailed distribution; use manual colour limits when
   comparing typical flow rather than extremes.
 - Natural Earth geometry is simplified for browser rendering while retaining

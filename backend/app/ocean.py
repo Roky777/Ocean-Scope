@@ -19,12 +19,14 @@ from pathlib import Path
 
 import numpy as np
 import xarray as xr
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from .catalog import DEFAULTS, variable_catalog
+from .providers import XarrayOceanProvider
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 DATA_PATH = DATA_DIR / "indian_ocean.nc"
+ZARR_PATH = DATA_DIR / "indian_ocean.zarr"
 PROFILES_PATH = DATA_DIR / "argo_profiles.json"
 
 # Cap on what we ship to the browser. The INCOIS grid is 50x71, already well
@@ -101,12 +103,19 @@ def load() -> None:
     """Open the dataset once at startup and precompute colour ranges."""
     global _ds, _profiles
 
-    if DATA_PATH.exists():
+    if ZARR_PATH.exists():
+        _ds = xr.open_zarr(ZARR_PATH, chunks="auto")
+        _ds.attrs["storage_backend"] = "chunked Zarr"
+    elif DATA_PATH.exists():
         _ds = xr.open_dataset(DATA_PATH)
+        _ds.attrs["storage_backend"] = "NetCDF fallback"
+
+    if _ds is not None:
         # CF attributes are the source of truth. Defaults only supply friendly
         # presentation metadata for known ocean variables.
         VARIABLES.clear()
         VARIABLES.update(variable_catalog(_ds))
+        _ranges.clear()
         for name in VARIABLES:
             if name not in _ds:
                 continue
@@ -160,6 +169,29 @@ def _require_dataset() -> xr.Dataset:
     return _ds
 
 
+def _provider() -> XarrayOceanProvider:
+    return XarrayOceanProvider(_require_dataset)
+
+
+def provenance(kind: str, timestep: int, variable: str, method: str | None = None) -> dict:
+    """Persistent, machine-readable provenance shared by every scientific view."""
+    ds = _require_dataset()
+    bundle = _provider().catalog()[0]
+    record = {
+        "dataset_id": bundle.id,
+        "source": bundle.source.label,
+        "source_type": bundle.source.source_type,
+        "valid_time": _iso_time(ds.time.values[timestep]),
+        "variable": variable,
+        "qc_mode": bundle.qc_mode,
+        "processing": kind,
+        "operational": bundle.source.operational,
+    }
+    if method:
+        record["method"] = method
+    return record
+
+
 def _downsample(arr2d, lats, lons):
     ny, nx = arr2d.shape
     yi = np.linspace(0, ny - 1, min(GRID_LAT, ny)).round().astype(int)
@@ -181,6 +213,7 @@ def get_meta():
     ds = _require_dataset()
     depths = [float(d) for d in ds["depth"].values]
 
+    bundle = _provider().catalog()[0]
     return {
         "region": "Indian Ocean",
         "variables": [
@@ -204,6 +237,18 @@ def get_meta():
         "source_label": "INCOIS ERDDAP · incois_argo_mnt_VAM (gridded Argo) + Argo GDAC floats",
         "source_url": ds.attrs.get("source_url", ""),
         "native_shape": [int(ds.sizes["lat"]), int(ds.sizes["lon"])],
+        "storage_backend": ds.attrs.get("storage_backend", "xarray"),
+        "active_dataset": bundle.model_dump(),
+        "capabilities": _provider().capabilities(),
+    }
+
+
+@router.get("/api/catalog")
+def get_catalog():
+    provider = _provider()
+    return {
+        "datasets": [bundle.model_dump() for bundle in provider.catalog()],
+        "capabilities": provider.capabilities(),
     }
 
 
@@ -288,6 +333,7 @@ def get_field(
         "range": _minmax(grid),
         "depth_range": _ranges.get(variable, {}).get("by_depth", {}).get(depth),
         "global_range": _ranges.get(variable, {}).get("global"),
+        "provenance": provenance("source field", timestep, variable),
     }
 
 
@@ -337,7 +383,52 @@ def get_volume(
         "bounds": get_meta()["bounds"],
         "values": _clean(values, 3),
         "range": _minmax(values),
+        "provenance": provenance("source volume", timestep, variable),
     }
+
+
+@router.get("/api/volume.bin")
+def get_binary_volume(
+    variable: str = Query("temperature"),
+    timestep: int = Query(0, ge=0),
+    lat_min: float | None = Query(None, ge=-90, le=90),
+    lat_max: float | None = Query(None, ge=-90, le=90),
+    lon_min: float | None = Query(None, ge=-180, le=180),
+    lon_max: float | None = Query(None, ge=-180, le=180),
+    depth_min: float | None = Query(None, ge=0),
+    depth_max: float | None = Query(None, ge=0),
+    stride: int = Query(1, ge=1, le=8),
+):
+    """ROI-only little-endian Float32 volume; NaN preserves land/missing masks."""
+    ds = _require_dataset()
+    if variable not in ds or "depth" not in ds[variable].dims:
+        raise HTTPException(400, f"{variable} has no depth-resolved volume")
+    if timestep >= ds.sizes["time"]:
+        raise HTTPException(404, f"No data for timestep {timestep}")
+    lats, lons, depths = np.asarray(ds.lat), np.asarray(ds.lon), np.asarray(ds.depth)
+    lat_mask = (lats >= (lat_min if lat_min is not None else lats.min())) & (lats <= (lat_max if lat_max is not None else lats.max()))
+    lon_mask = (lons >= (lon_min if lon_min is not None else lons.min())) & (lons <= (lon_max if lon_max is not None else lons.max()))
+    depth_mask = (depths >= (depth_min if depth_min is not None else depths.min())) & (depths <= (depth_max if depth_max is not None else depths.max()))
+    if not lat_mask.any() or not lon_mask.any() or not depth_mask.any():
+        raise HTTPException(422, "ROI does not intersect the available grid")
+    z_idx, y_idx, x_idx = np.flatnonzero(depth_mask), np.flatnonzero(lat_mask)[::stride], np.flatnonzero(lon_mask)[::stride]
+    values = np.asarray(
+        ds[variable].isel(time=timestep, depth=z_idx, lat=y_idx, lon=x_idx).values,
+        dtype="<f4",
+    )
+    selected_lats, selected_lons, selected_depths = lats[y_idx], lons[x_idx], depths[z_idx]
+    headers = {
+        "X-OceanScope-Shape": ",".join(map(str, values.shape)),
+        "X-OceanScope-Dtype": "float32-le",
+        "X-OceanScope-Order": "depth,lat,lon",
+        "X-OceanScope-Depths": ",".join(f"{v:g}" for v in selected_depths),
+        "X-OceanScope-Lat-Range": f"{selected_lats.min():g},{selected_lats.max():g}",
+        "X-OceanScope-Lon-Range": f"{selected_lons.min():g},{selected_lons.max():g}",
+        "X-OceanScope-Missing": "NaN",
+        "X-OceanScope-Dataset": _provider().catalog()[0].id,
+        "Access-Control-Expose-Headers": "X-OceanScope-Shape,X-OceanScope-Dtype,X-OceanScope-Order,X-OceanScope-Depths,X-OceanScope-Lat-Range,X-OceanScope-Lon-Range,X-OceanScope-Missing,X-OceanScope-Dataset",
+    }
+    return Response(content=values.tobytes(order="C"), media_type="application/octet-stream", headers=headers)
 
 
 @router.get("/api/currents")

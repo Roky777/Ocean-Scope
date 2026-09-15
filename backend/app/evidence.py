@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from . import ocean
 from .data_access import _all_instruments
+from .scientific import horizontal_profile
 
 router = APIRouter(prefix="/api/evidence", tags=["evidence"])
 
@@ -197,6 +198,26 @@ def _time_profile(data, times: np.ndarray, observed_time: np.datetime64):
     return values, left, right, "linear_time_interpolation"
 
 
+def _bootstrap_confidence_intervals(model_values: np.ndarray, observed_values: np.ndarray, samples: int = 2000) -> dict:
+    """Deterministic paired-profile bootstrap; omitted for undersized profiles."""
+    model_values, observed_values = np.asarray(model_values, float), np.asarray(observed_values, float)
+    n = len(model_values)
+    if n < 4:
+        return {}
+    rng = np.random.default_rng(26067)
+    indices = rng.integers(0, n, size=(samples, n))
+    errors = model_values[indices] - observed_values[indices]
+    statistics = {
+        "bias": errors.mean(axis=1),
+        "mae": np.abs(errors).mean(axis=1),
+        "rmse": np.sqrt(np.mean(errors ** 2, axis=1)),
+    }
+    return {
+        name: [round(float(v), 4) for v in np.percentile(values, [2.5, 97.5])]
+        for name, values in statistics.items()
+    }
+
+
 def _metrics(model_values: np.ndarray, observed_values: np.ndarray) -> dict:
     error = np.asarray(model_values, float) - np.asarray(observed_values, float)
     result = {
@@ -204,10 +225,31 @@ def _metrics(model_values: np.ndarray, observed_values: np.ndarray) -> dict:
         "mae": round(float(np.abs(error).mean()), 4),
         "rmse": round(float(np.sqrt(np.mean(error ** 2))), 4),
         "matched_samples": len(error),
+        "confidence_intervals_95": _bootstrap_confidence_intervals(model_values, observed_values),
     }
     if len(error) >= 3 and np.std(observed_values) > 0 and np.std(model_values) > 0:
         result["correlation"] = round(float(np.corrcoef(model_values, observed_values)[0, 1]), 4)
     return result
+
+
+def _comparison_confidence(spatial_footprint_km: float, time_gap_hours: float, matched: int, qc_summary: dict) -> dict:
+    """Rate matchup representativeness separately from numerical model skill."""
+    known = qc_summary["good"] + qc_summary["probably_good"] + qc_summary["rejected"]
+    qc = (qc_summary["good"] + 0.75 * qc_summary["probably_good"]) / known if known else 0.5
+    components = {
+        "spatial": float(np.exp(-spatial_footprint_km / 180.0)),
+        "temporal": float(np.exp(-time_gap_hours / (24 * 45))),
+        "sample_support": min(1.0, matched / 8.0),
+        "qc": qc,
+    }
+    score = 0.30 * components["spatial"] + 0.30 * components["temporal"] + 0.25 * components["sample_support"] + 0.15 * components["qc"]
+    label = "high" if score >= 0.75 else "moderate" if score >= 0.5 else "limited"
+    return {
+        "score": round(score, 3),
+        "label": label,
+        "components": {key: round(value, 3) for key, value in components.items()},
+        "meaning": "Matchup representativeness from grid footprint, time gap, sample support, and QC. This is separate from model accuracy.",
+    }
 
 
 def _nearest_wet_cell(profile3d: np.ndarray, lats: np.ndarray, lons: np.ndarray, lat: float, lon: float):
@@ -237,9 +279,24 @@ def collocate(request: CollocateRequest):
     observed_time = np.datetime64(_utc(observation["time"]).replace(tzinfo=None))
     times = np.asarray(ds["time"].values, dtype="datetime64[ns]")
     timed, previous, following, time_method = _time_profile(ds[request.variable], times, observed_time)
-    distance, _, lat_index, lon_index = _nearest_wet_cell(timed, np.asarray(ds.lat), np.asarray(ds.lon), observation["lat"], observation["lon"])
+    lats, lons = np.asarray(ds.lat), np.asarray(ds.lon)
+    try:
+        model_profile, space_method, grid_footprint_km, fallback_levels = horizontal_profile(
+            timed, lats, lons, observation["lat"], observation["lon"],
+        )
+    except HTTPException:
+        model_profile = np.full(timed.shape[0], np.nan)
+        space_method, grid_footprint_km, fallback_levels = "outside_grid_fallback", 0.0, 0
+    model_location = {"lat": round(float(observation["lat"]), 4), "lon": round(float(observation["lon"]), 4)}
+    distance = 0.0
+    if np.isfinite(model_profile).sum() < 2:
+        distance, _, lat_index, lon_index = _nearest_wet_cell(timed, lats, lons, observation["lat"], observation["lon"])
+        model_profile = timed[:, lat_index, lon_index]
+        model_location = {"lat": round(float(ds.lat.values[lat_index]), 4), "lon": round(float(ds.lon.values[lon_index]), 4)}
+        space_method = "nearest_valid_wet_cell"
+        grid_footprint_km = round(distance, 2)
+        fallback_levels = int(len(model_profile))
     model_depths = np.asarray(ds.depth.values, float)
-    model_profile = timed[:, lat_index, lon_index]
     model_valid = np.isfinite(model_profile)
     if model_valid.sum() < 2:
         raise HTTPException(422, "Matched wet cell has insufficient model depth coverage")
@@ -254,15 +311,31 @@ def collocate(request: CollocateRequest):
     if not len(aligned_depths):
         raise HTTPException(422, "Observation and model profiles have no common valid depth range")
     nearest_gap = min(abs(observed_time - times[previous]), abs(times[following] - observed_time)) / np.timedelta64(1, "h")
+    metrics = _metrics(aligned_model, aligned_obs)
+    confidence = _comparison_confidence(grid_footprint_km, float(nearest_gap), len(aligned_depths), qc_summary)
     result = {
         "observation": {key: observation.get(key) for key in ("id", "platform_number", "cycle_number", "type", "lat", "lon", "time", "source")},
         "variable": request.variable, "units": ocean.VARIABLES[request.variable]["units"],
-        "model_location": {"lat": round(float(ds.lat.values[lat_index]), 4), "lon": round(float(ds.lon.values[lon_index]), 4)},
-        "spatial_distance_km": round(distance, 2), "space_method": "nearest_valid_wet_cell",
+        "model_location": model_location,
+        "spatial_distance_km": round(distance, 2), "space_method": space_method,
+        "representativeness": {
+            "grid_footprint_km": grid_footprint_km,
+            "wet_corner_fallback_levels": fallback_levels,
+            "note": "Grid footprint is a resolution/mismatch indicator, not instrument measurement uncertainty.",
+        },
         "time_matching": {"method": time_method, "observation_time": observation["time"], "previous_model_time": _iso(times[previous]), "next_model_time": _iso(times[following]), "nearest_time_gap_hours": round(float(nearest_gap), 2)},
         "depth_matching": {"method": "linear_model_to_observation_depths", "common_depth_range": [round(float(aligned_depths.min()), 2), round(float(aligned_depths.max()), 2)], "valid_matched_depths": len(aligned_depths)},
         "qc_summary": qc_summary,
         "profile": [{"depth": round(float(d), 2), "observed": round(float(o), 4), "model": round(float(m), 4), "difference": round(float(m-o), 4)} for d, o, m in zip(aligned_depths, aligned_obs, aligned_model)],
-        "metrics": _metrics(aligned_model, aligned_obs),
+        "metrics": metrics,
+        "comparison_confidence": confidence,
+        "provenance": ocean.provenance("model-observation collocation", request.timestep, request.variable, f"{space_method}; {time_method}; linear depth interpolation"),
+        "provenance_trail": [
+            {"step": 1, "action": "QC filter", "detail": qc_summary["policy"]},
+            {"step": 2, "action": "Time alignment", "detail": time_method},
+            {"step": 3, "action": "Horizontal sampling", "detail": f"{space_method}; grid footprint {grid_footprint_km} km"},
+            {"step": 4, "action": "Depth alignment", "detail": "Model linearly interpolated to accepted observation depths"},
+            {"step": 5, "action": "Uncertainty", "detail": "Paired bootstrap 95% confidence intervals when at least four levels match"},
+        ],
     }
     return result
